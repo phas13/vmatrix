@@ -1,0 +1,56 @@
+name: Frontend CI/CD
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+      - name: Run tests
+        run: |
+          cd frontend
+          npm test
+
+  build:
+    name: Vite Production Build
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+  sync-s3:
+    name: Sync to S3
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync dist/ to S3
+        run: echo "TODO - configure AWS credentials and S3 bucket"
+
+  invalidate-cf:
+    name: Invalidate CloudFront
+    needs: sync-s3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invalidate CloudFront distribution
+        run: echo "TODO - configure CloudFront distribution ID"
