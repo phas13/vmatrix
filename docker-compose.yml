@@ -1,42 +1,48 @@
+name: vmatrix
+
 services:
   postgres:
     image: postgres:16
+    # Parse POSTGRES_* out of DATABASE_URL so the dotenv file has a single source of truth.
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: vmatrix
+      POSTGRES_USER: vmatrix_user
+      POSTGRES_PASSWORD: changeme_local
     ports:
-      - "5432:5432"
+      # Bind to loopback only so local-dev Postgres is not exposed on LAN.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U vmatrix_user -d vmatrix"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: sh -c "alembic upgrade head && fastapi run main.py --host 0.0.0.0 --port 8000"
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      SECRET_KEY: ${SECRET_KEY}
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
-      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS}
-      FERNET_KEY: ${FERNET_KEY}
-      LLM_PROVIDER: ${LLM_PROVIDER}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    # Shell form required for `&&`. `--reload` enables hot-reload alongside the bind mount.
+    command: sh -c "alembic upgrade head && fastapi run main.py --host 0.0.0.0 --port 8000 --reload"
+    env_file: .env
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3); sys.exit(0)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     volumes:
+      # Bind-mount for local hot-reload. Shadows image contents — rebuild image for CI/prod parity.
       - ./backend:/app
+    restart: unless-stopped
 
   frontend:
     build:
@@ -45,7 +51,9 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:

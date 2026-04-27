@@ -1,5 +1,8 @@
-from cryptography.fernet import Fernet
-from jose import jwt
+from datetime import datetime, timedelta, timezone
+
+from cryptography.fernet import Fernet, InvalidToken
+from fastapi import HTTPException, status
+from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
@@ -16,8 +19,6 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(data: dict) -> str:
-    from datetime import datetime, timedelta, timezone
-
     payload = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(
         minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
@@ -27,7 +28,14 @@ def create_access_token(data: dict) -> str:
 
 
 def decode_access_token(token: str) -> dict:
-    return jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+    try:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
 
 
 def _get_fernet() -> Fernet:
@@ -42,4 +50,10 @@ def encrypt_field(value: str) -> str:
 
 
 def decrypt_field(token: str) -> str:
-    return _get_fernet().decrypt(token.encode()).decode()
+    try:
+        return _get_fernet().decrypt(token.encode()).decode()
+    except InvalidToken as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid encrypted value",
+        ) from exc

@@ -3,6 +3,8 @@ name: Backend CI/CD
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   test:
@@ -14,6 +16,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
       - name: Install dependencies
         run: |
           cd backend
@@ -34,6 +40,7 @@ jobs:
 
   push-ecr:
     name: Push to ECR
+    if: ${{ vars.DEPLOY_ENABLED == 'true' && github.event_name == 'push' }}
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -42,6 +49,7 @@ jobs:
 
   deploy-ecs:
     name: Deploy to ECS
+    if: ${{ vars.DEPLOY_ENABLED == 'true' && github.event_name == 'push' }}
     needs: push-ecr
     runs-on: ubuntu-latest
     steps:
