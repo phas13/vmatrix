@@ -7,6 +7,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.db.base import Base
+from app.models.user import User, RefreshToken  # noqa: F401
 
 config = context.config
 

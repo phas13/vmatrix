@@ -1,4 +1,6 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException, status
@@ -36,6 +38,20 @@ def decode_access_token(token: str) -> dict:
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+
+
+def create_refresh_token() -> str:
+    return str(uuid4())
+
+
+def hash_token(raw: str) -> str:
+    # NEVER store raw refresh tokens; always store the SHA-256 hash
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+# /auth/refresh is NOT exempt from CSRF protection — this check is mandatory
+def generate_csrf_token() -> str:
+    return str(uuid4())
 
 
 def _get_fernet() -> Fernet:
