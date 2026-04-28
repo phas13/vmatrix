@@ -24,6 +24,8 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    cm_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    cm: Mapped["User | None"] = relationship("User", remote_side="User.id", foreign_keys="User.cm_id")
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")
 
 

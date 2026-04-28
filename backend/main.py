@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.api.v1 import router as v1_router
+from app.core.exceptions import ProblemHTTPException
 from app.db.session import engine
 
 
@@ -13,5 +15,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="VMatrix API", version="1.0.0", lifespan=lifespan)
+
+
+@app.exception_handler(ProblemHTTPException)
+async def problem_exception_handler(request: Request, exc: ProblemHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.detail,
+        media_type="application/problem+json",
+    )
+
 
 app.include_router(v1_router, prefix="/api/v1")
