@@ -19,10 +19,14 @@ app = FastAPI(title="VMatrix API", version="1.0.0", lifespan=lifespan)
 
 @app.exception_handler(ProblemHTTPException)
 async def problem_exception_handler(request: Request, exc: ProblemHTTPException):
+    headers = dict(exc.headers) if exc.headers else {}
+    if exc.status_code == 401:
+        headers.setdefault("WWW-Authenticate", "Bearer")
     return JSONResponse(
         status_code=exc.status_code,
         content=exc.detail,
         media_type="application/problem+json",
+        headers=headers,
     )
 
 

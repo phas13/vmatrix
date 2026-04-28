@@ -6,6 +6,6 @@ from app.models.user import UserRole
 router = APIRouter()
 
 
-@router.get("/status", dependencies=[Depends(require_role(UserRole.HR))])
+@router.get("/status", dependencies=[Depends(require_role(UserRole.HR, UserRole.ADMIN))])
 async def hr_status():
     return {"status": "hr_only"}

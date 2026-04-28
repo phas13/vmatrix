@@ -18,7 +18,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.add_column("users", sa.Column("cm_id", sa.UUID(), nullable=True))
-    op.create_foreign_key("fk_users_cm_id", "users", "users", ["cm_id"], ["id"])
+    op.create_foreign_key(
+        "fk_users_cm_id", "users", "users", ["cm_id"], ["id"], ondelete="RESTRICT"
+    )
     op.create_index("ix_users_cm_id", "users", ["cm_id"])
 
 

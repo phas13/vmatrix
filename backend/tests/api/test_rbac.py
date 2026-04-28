@@ -1,8 +1,11 @@
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from jose import jwt
 
+from app.core.config import settings
 from app.core.security import create_access_token
 from app.db.session import get_db_session
 from app.models.user import User, UserRole
@@ -86,7 +89,33 @@ async def test_specialist_cannot_access_cm_team_returns_403(async_client):
 
 # ─── AC2: DB queried exactly once per request (role from JWT, not extra query) ─
 
-async def test_cm_team_db_queried_once_for_user_lookup(async_client):
+async def test_admin_status_uses_single_db_query_for_role_check(async_client):
+    """AC2: `require_role` performs no DB lookup beyond the user fetch.
+
+    Uses `/admin/status` (Pattern-B route — no business-logic query in the
+    handler) so the only `db.execute` call is the user lookup inside
+    `get_current_user`. If `require_role` ever added a role-check DB query,
+    `call_count` would become 2 and this test would fail.
+    """
+    admin = _make_user(UserRole.ADMIN)
+    override, mock_db = _db_returning(admin)
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.get(
+            "/api/v1/admin/status",
+            cookies={"access_token": token},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert mock_db.execute.call_count == 1
+
+
+# ─── AC2 supporting: cm/team performs exactly user-lookup + team-query (2 calls) ─
+
+async def test_cm_team_uses_single_user_lookup_plus_team_query(async_client):
     cm = _make_user(UserRole.CM)
 
     mock_result_user = MagicMock()
@@ -110,8 +139,8 @@ async def test_cm_team_db_queried_once_for_user_lookup(async_client):
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    # First execute call: get_current_user user lookup
-    # Second execute call: cm/team specialist query
+    # First execute: get_current_user user lookup. Second execute: cm/team specialist query.
+    # No extra DB call for role check.
     assert mock_db.execute.call_count == 2
 
 
@@ -275,3 +304,117 @@ async def test_hr_status_accessible_by_hr(async_client):
 
     assert response.status_code == 200
     assert response.json()["status"] == "hr_only"
+
+
+async def test_hr_status_accessible_by_admin(async_client):
+    """ADMIN is a global superuser — must have access to HR-scoped endpoints."""
+    admin = _make_user(UserRole.ADMIN)
+    override, _ = _db_returning(admin)
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.get(
+            "/api/v1/hr/status",
+            cookies={"access_token": token},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "hr_only"
+
+
+# ─── AC3 strengthening: verify the cm_id WHERE clause is actually applied ─────
+
+async def test_cm_team_query_filters_by_cm_id(async_client):
+    """AC3 isolation invariant: the team query MUST include `cm_id == current_user.id`.
+
+    The other AC3 test mocks the DB to return whatever specialists we choose,
+    so the filter could be silently removed without breaking it. This test
+    captures the actual SQL statement and asserts the filter is present.
+    """
+    cm = _make_user(UserRole.CM)
+    captured_stmts = []
+
+    mock_result_user = MagicMock()
+    mock_result_user.scalar_one_or_none.return_value = cm
+    mock_result_list = MagicMock()
+    mock_result_list.scalars.return_value.all.return_value = []
+
+    async def execute_side_effect(stmt, *args, **kwargs):
+        captured_stmts.append(stmt)
+        return mock_result_user if len(captured_stmts) == 1 else mock_result_list
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(side_effect=execute_side_effect)
+
+    async def override():
+        yield mock_db
+
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.get("/api/v1/cm/team", cookies={"access_token": token})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert len(captured_stmts) == 2
+    team_sql = str(captured_stmts[1])
+    assert "cm_id" in team_sql, f"Team query is missing cm_id filter: {team_sql}"
+    assert "role" in team_sql, f"Team query is missing role filter: {team_sql}"
+
+
+# ─── AC5 hardening: malformed/missing JWT claims must produce 401 RFC 7807 ────
+
+def _signed_jwt(payload: dict) -> str:
+    """Build a JWT signed with the app secret but with arbitrary payload."""
+    data = payload.copy()
+    data.setdefault("exp", datetime.now(timezone.utc) + timedelta(minutes=5))
+    return jwt.encode(data, settings.SECRET_KEY, algorithm="HS256")
+
+
+async def test_jwt_missing_sub_returns_401(async_client):
+    """Token signed but missing `sub` claim must yield 401 (not 500)."""
+    token = _signed_jwt({"role": UserRole.SPECIALIST.value})
+    response = await async_client.get(
+        "/api/v1/cm/team",
+        cookies={"access_token": token},
+    )
+    assert response.status_code == 401
+    assert response.headers["content-type"].startswith("application/problem+json")
+    body = response.json()
+    for key in ("type", "title", "status", "detail", "instance"):
+        assert key in body
+    assert body["status"] == 401
+
+
+async def test_jwt_malformed_sub_returns_401(async_client):
+    """Token signed but `sub` is not a valid UUID must yield 401 (not 500)."""
+    token = _signed_jwt({"sub": "not-a-uuid", "role": UserRole.SPECIALIST.value})
+    response = await async_client.get(
+        "/api/v1/cm/team",
+        cookies={"access_token": token},
+    )
+    assert response.status_code == 401
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["status"] == 401
+
+
+async def test_inactive_user_returns_401(async_client):
+    """Authenticated user with `is_active=False` must be rejected with 401."""
+    specialist = _make_user(UserRole.SPECIALIST)
+    specialist.is_active = False
+    override, _ = _db_returning(specialist)
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.get(
+            "/api/v1/cm/team",
+            cookies={"access_token": token},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 401
+    assert response.json()["status"] == 401
