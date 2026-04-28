@@ -1,0 +1,17 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "matrix": "Competency Matrix",
+    "history": "Assessment History",
+    "settings": "Settings",
+    "logout": "Logout"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "email": "Email",
+    "password": "Password"
+  },
+  "lang": {
+    "switch": "UK"
+  }
+}

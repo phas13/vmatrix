@@ -1,0 +1,17 @@
+{
+  "nav": {
+    "dashboard": "Дашборд",
+    "matrix": "Матриця компетенцій",
+    "history": "Історія оцінювань",
+    "settings": "Налаштування",
+    "logout": "Вийти"
+  },
+  "auth": {
+    "signIn": "Увійти",
+    "email": "Email",
+    "password": "Пароль"
+  },
+  "lang": {
+    "switch": "EN"
+  }
+}
