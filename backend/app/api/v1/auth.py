@@ -83,8 +83,8 @@ async def logout(request: Request, response: Response, db: AsyncSession = Depend
     refresh_token_raw = request.cookies.get("refresh_token", "")
     await auth_service.revoke_session(refresh_token_raw, db)
 
-    response.delete_cookie("access_token")
-    response.delete_cookie("refresh_token")
-    response.delete_cookie("csrf_token")
+    response.delete_cookie("access_token", httponly=True, secure=True, samesite="strict", path="/")
+    response.delete_cookie("refresh_token", httponly=True, secure=True, samesite="strict", path="/")
+    response.delete_cookie("csrf_token", httponly=False, secure=True, samesite="strict", path="/")
 
     return {"message": "Logged out"}

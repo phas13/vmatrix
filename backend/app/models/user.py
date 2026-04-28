@@ -35,4 +35,7 @@ class RefreshToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Identifies the token family — all rotated descendants share the same family_id.
+    # Presenting a revoked token triggers revocation of all non-revoked family members.
+    family_id: Mapped[UUID] = mapped_column(nullable=False, index=True)
     user: Mapped["User"] = relationship(back_populates="refresh_tokens")
