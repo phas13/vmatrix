@@ -1,3 +1,4 @@
-from app.models.user import RefreshToken, User, UserRole
+from app.models.notification import Notification, NotificationType
+from app.models.user import RefreshToken, SpecialistLevel, User, UserRole
 
-__all__ = ["User", "UserRole", "RefreshToken"]
+__all__ = ["User", "UserRole", "RefreshToken", "SpecialistLevel", "Notification", "NotificationType"]

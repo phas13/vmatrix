@@ -1,10 +1,14 @@
 export type UserRole = 'admin' | 'specialist' | 'cm' | 'hr'
 
+export type SpecialistLevel = 'junior' | 'middle' | 'senior'
+
 export interface User {
   id: string
   email: string
   fullName: string
   role: UserRole
+  specialistLevel?: SpecialistLevel
+  cmId?: string | null
   isActive: boolean
   createdAt: string
   updatedAt: string

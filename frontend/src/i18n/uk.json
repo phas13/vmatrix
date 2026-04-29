@@ -16,5 +16,31 @@
   },
   "viewport": {
     "mobileBlock": "vmatrix оптимізовано для десктопу. Будь ласка, відкрийте на пристрої з більшим екраном."
+  },
+  "admin": {
+    "users": {
+      "title": "Управління користувачами",
+      "create": "Створити користувача",
+      "emailLabel": "Email (обов'язково)",
+      "fullNameLabel": "Повне ім'я (обов'язково)",
+      "roleLabel": "Роль (обов'язково)",
+      "passwordLabel": "Пароль (обов'язково)",
+      "levelLabel": "Рівень (обов'язково)",
+      "cmLabel": "Призначений КМ",
+      "emailConflict": "Користувач з таким email вже існує",
+      "createSuccess": "Користувача успішно створено",
+      "noUsers": "Користувачів ще немає",
+      "roles": {
+        "specialist": "Спеціаліст",
+        "cm": "Менеджер компетенцій",
+        "hr": "HR",
+        "admin": "Адміністратор"
+      },
+      "levels": {
+        "junior": "Junior",
+        "middle": "Middle",
+        "senior": "Senior"
+      }
+    }
   }
 }

@@ -16,5 +16,31 @@
   },
   "viewport": {
     "mobileBlock": "vmatrix is optimized for desktop. Please open on a device with a larger screen."
+  },
+  "admin": {
+    "users": {
+      "title": "User Management",
+      "create": "Create User",
+      "emailLabel": "Email (required)",
+      "fullNameLabel": "Full Name (required)",
+      "roleLabel": "Role (required)",
+      "passwordLabel": "Password (required)",
+      "levelLabel": "Level (required)",
+      "cmLabel": "Assigned CM",
+      "emailConflict": "A user with this email already exists",
+      "createSuccess": "User created successfully",
+      "noUsers": "No users yet",
+      "roles": {
+        "specialist": "Specialist",
+        "cm": "Competency Manager",
+        "hr": "HR",
+        "admin": "Admin"
+      },
+      "levels": {
+        "junior": "Junior",
+        "middle": "Middle",
+        "senior": "Senior"
+      }
+    }
   }
 }
