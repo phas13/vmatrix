@@ -11,25 +11,30 @@ from app.models.user import SpecialistLevel, User, UserRole
 from main import app
 
 FAKE_HASHED = "$2b$12$fakehashedpassword0000000000000000000000000000000000000"
-NOW = datetime.now(timezone.utc)
+CSRF_TOKEN = "test-csrf-token-1234"
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _make_user(
     role: UserRole = UserRole.ADMIN,
     specialist_level: SpecialistLevel | None = None,
     cm_id=None,
+    is_active: bool = True,
 ) -> MagicMock:
     u = MagicMock(spec=User)
     u.id = uuid4()
-    u.email = f"{role.value}@example.com"
+    u.email = f"{role.value}-{u.id.hex[:6]}@example.com"
     u.full_name = f"Test {role.value.title()}"
     u.role = role
-    u.is_active = True
+    u.is_active = is_active
     u.hashed_password = FAKE_HASHED
     u.specialist_level = specialist_level
     u.cm_id = cm_id
-    u.created_at = NOW
-    u.updated_at = NOW
+    u.created_at = _now()
+    u.updated_at = _now()
     return u
 
 
@@ -37,31 +42,88 @@ def _make_jwt(user: MagicMock) -> str:
     return create_access_token({"sub": str(user.id), "role": user.role.value})
 
 
-def _db_returning_user(user: MagicMock):
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = user
-    mock_result.scalars.return_value.all.return_value = []
+def _csrf_cookies(token: str) -> dict[str, str]:
+    return {"access_token": token, "csrf_token": CSRF_TOKEN}
+
+
+def _csrf_headers() -> dict[str, str]:
+    return {"X-CSRF-Token": CSRF_TOKEN}
+
+
+def _scalar_one_or_none_result(value) -> MagicMock:
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = value
+    return r
+
+
+def _scalars_all_result(items: list) -> MagicMock:
+    r = MagicMock()
+    r.scalars.return_value.all.return_value = items
+    return r
+
+
+def _populate_after_insert(obj) -> None:
+    """Mimic SQLAlchemy db.refresh() for tests: fill id/timestamps + column defaults."""
+    if not hasattr(obj, "id") or obj.id is None:
+        obj.id = uuid4()
+    if obj.__class__.__name__ == "User":
+        if obj.is_active is None:
+            obj.is_active = True
+    if not getattr(obj, "created_at", None):
+        obj.created_at = _now()
+    if not getattr(obj, "updated_at", None):
+        obj.updated_at = _now()
+
+
+def _routed_db(*results) -> tuple:
+    """Build a mock AsyncSession whose execute() returns each result in order."""
+    queue = list(results)
     mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_db.commit = AsyncMock()
+    mock_db.rollback = AsyncMock()
+
+    async def fake_refresh(obj):
+        _populate_after_insert(obj)
+
+    mock_db.refresh = AsyncMock(side_effect=fake_refresh)
+
+    added: list = []
+
+    def fake_add(obj):
+        added.append(obj)
+        _populate_after_insert(obj)
+
+    mock_db.add = MagicMock(side_effect=fake_add)
+
+    async def execute_side_effect(*_args, **_kwargs):
+        return queue.pop(0) if queue else _scalar_one_or_none_result(None)
+
+    mock_db.execute = AsyncMock(side_effect=execute_side_effect)
 
     async def override():
         yield mock_db
 
-    return override, mock_db
+    return override, mock_db, added
 
 
 # ─── AC5: Non-admin gets 403 ──────────────────────────────────────────────────
 
 async def test_create_user_requires_admin_role(async_client: AsyncClient):
-    specialist = _make_user(role=UserRole.SPECIALIST)
-    override, _ = _db_returning_user(specialist)
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(specialist))
     app.dependency_overrides[get_db_session] = override
     try:
         token = _make_jwt(specialist)
         response = await async_client.post(
             "/api/v1/admin/users",
-            json={"email": "x@x.com", "full_name": "X", "role": "specialist", "password": "password1"},
-            cookies={"access_token": token},
+            json={
+                "email": "x@x.com",
+                "full_name": "X",
+                "role": "hr",
+                "password": "password1",
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
         )
     finally:
         app.dependency_overrides.clear()
@@ -69,91 +131,129 @@ async def test_create_user_requires_admin_role(async_client: AsyncClient):
     assert response.status_code == 403
     body = response.json()
     assert body["status"] == 403
+    assert "permission" in body["detail"].lower() or "forbidden" in body["title"].lower()
 
-
-# ─── AC5 unauthenticated: 401 ─────────────────────────────────────────────────
 
 async def test_unauthenticated_returns_401(async_client: AsyncClient):
     response = await async_client.post(
         "/api/v1/admin/users",
-        json={"email": "x@x.com", "full_name": "X", "role": "specialist", "password": "password1"},
+        json={"email": "x@x.com", "full_name": "X", "role": "hr", "password": "password1"},
+        cookies={"csrf_token": CSRF_TOKEN},
+        headers=_csrf_headers(),
     )
     assert response.status_code == 401
     body = response.json()
     assert body["status"] == 401
 
 
-# ─── AC1: Admin creates user → 201 + UserRead ─────────────────────────────────
+async def test_create_user_csrf_required(async_client: AsyncClient):
+    """POST without matching X-CSRF-Token must return 403."""
+    admin = _make_user(role=UserRole.ADMIN)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(admin))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            "/api/v1/admin/users",
+            json={"email": "x@x.com", "full_name": "X", "role": "hr", "password": "password1"},
+            cookies={"access_token": token},  # no csrf_token cookie
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    body = response.json()
+    assert "csrf" in body["detail"].lower()
+
+
+# ─── AC1: Admin creates user → 201, hashes password, no leak ─────────────────
 
 async def test_admin_creates_user_returns_201(async_client: AsyncClient):
     admin = _make_user(role=UserRole.ADMIN)
-    created = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
-    created.email = "new@example.com"
-    created.full_name = "New Specialist"
+    override, _, added = _routed_db(_scalar_one_or_none_result(admin))
+    plaintext_passwords: list[str] = []
 
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = admin
-    mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(return_value=mock_result)
-    mock_db.commit = AsyncMock()
-    mock_db.refresh = AsyncMock(side_effect=lambda obj: None)
+    def fake_hash(pwd: str) -> str:
+        plaintext_passwords.append(pwd)
+        return FAKE_HASHED
 
-    async def override():
-        yield mock_db
-
-    with patch("app.services.admin_service.hash_password", return_value=FAKE_HASHED):
-        with patch("app.services.admin_service.User", return_value=created):
-            app.dependency_overrides[get_db_session] = override
-            try:
-                token = _make_jwt(admin)
-                response = await async_client.post(
-                    "/api/v1/admin/users",
-                    json={
-                        "email": "new@example.com",
-                        "full_name": "New Specialist",
-                        "role": "specialist",
-                        "password": "password1",
-                        "specialist_level": "junior",
-                    },
-                    cookies={"access_token": token},
-                )
-            finally:
-                app.dependency_overrides.clear()
+    with patch("app.services.admin_service.hash_password", side_effect=fake_hash):
+        app.dependency_overrides[get_db_session] = override
+        try:
+            token = _make_jwt(admin)
+            response = await async_client.post(
+                "/api/v1/admin/users",
+                json={
+                    "email": "New@Example.com",  # tests lowercase normalization
+                    "full_name": "  New Specialist  ",  # tests strip
+                    "role": "specialist",
+                    "password": "password1",
+                    "specialist_level": "junior",
+                },
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
 
     assert response.status_code == 201
     data = response.json()
-    assert data["email"] == "new@example.com"
+    assert data["email"] == "new@example.com"  # lowercased
+    assert data["full_name"] == "New Specialist"  # stripped
     assert data["specialist_level"] == "junior"
+    # Critical security check: response must never include hashed_password
+    assert "hashed_password" not in data
+    # Critical security check: hash_password must have been called with the plaintext
+    assert plaintext_passwords == ["password1"]
+    # Critical: hash never leaks via the User object hand-off
+    user_objs = [o for o in added if o.__class__.__name__ == "User"]
+    assert len(user_objs) == 1
+    assert user_objs[0].hashed_password == FAKE_HASHED  # not the plaintext
+
+
+async def test_email_lowercased_on_create(async_client: AsyncClient):
+    """Admin submits mixed-case email; UserCreate normalizes to lowercase before insert."""
+    admin = _make_user(role=UserRole.ADMIN)
+    override, _, added = _routed_db(_scalar_one_or_none_result(admin))
+
+    with patch("app.services.admin_service.hash_password", return_value=FAKE_HASHED):
+        app.dependency_overrides[get_db_session] = override
+        try:
+            token = _make_jwt(admin)
+            response = await async_client.post(
+                "/api/v1/admin/users",
+                json={
+                    "email": "Alice@Example.COM",
+                    "full_name": "Alice",
+                    "role": "hr",
+                    "password": "password1",
+                },
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    user_objs = [o for o in added if o.__class__.__name__ == "User"]
+    assert len(user_objs) == 1
+    assert user_objs[0].email == "alice@example.com"
 
 
 # ─── AC1: List users returns paginated response ───────────────────────────────
 
 async def test_list_users_returns_paginated(async_client: AsyncClient):
     admin = _make_user(role=UserRole.ADMIN)
-    specialist = _make_user(role=UserRole.SPECIALIST)
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
 
-    mock_count_result = MagicMock()
-    mock_count_result.scalar_one.return_value = 1
-    mock_list_result = MagicMock()
-    mock_list_result.scalars.return_value.all.return_value = [specialist]
-    mock_user_result = MagicMock()
-    mock_user_result.scalar_one_or_none.return_value = admin
+    # admin_service.list_users uses a windowed-count statement: each row is (User, total).
+    list_result = MagicMock()
+    list_result.all.return_value = [(specialist, 1)]
 
-    call_count = {"n": 0}
-
-    async def execute_side_effect(stmt, *args, **kwargs):
-        call_count["n"] += 1
-        if call_count["n"] == 1:
-            return mock_user_result  # get_current_user lookup
-        if call_count["n"] == 2:
-            return mock_count_result  # count query
-        return mock_list_result  # list query
-
-    mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(side_effect=execute_side_effect)
-
-    async def override():
-        yield mock_db
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),  # get_current_user
+        list_result,                         # windowed list+count
+    )
 
     app.dependency_overrides[get_db_session] = override
     try:
@@ -167,12 +267,8 @@ async def test_list_users_returns_paginated(async_client: AsyncClient):
 
     assert response.status_code == 200
     data = response.json()
-    assert "items" in data
-    assert "total" in data
-    assert "page" in data
-    assert "per_page" in data
-    assert "pages" in data
     assert data["total"] == 1
+    assert data["pages"] == 1
     assert len(data["items"]) == 1
 
 
@@ -183,16 +279,16 @@ async def test_create_user_duplicate_email_returns_409(async_client: AsyncClient
 
     admin = _make_user(role=UserRole.ADMIN)
 
-    mock_user_result = MagicMock()
-    mock_user_result.scalar_one_or_none.return_value = admin
     mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(return_value=mock_user_result)
+    mock_db.execute = AsyncMock(return_value=_scalar_one_or_none_result(admin))
+    # simulate the case-insensitive constraint fired in production
     mock_db.commit = AsyncMock(
         side_effect=sqlalchemy.exc.IntegrityError(
-            "INSERT", {}, Exception("uq_users_email")
+            "INSERT", {}, Exception("duplicate key value violates unique constraint \"uq_users_email_lower\"")
         )
     )
     mock_db.rollback = AsyncMock()
+    mock_db.add = MagicMock()
 
     async def override():
         yield mock_db
@@ -204,7 +300,8 @@ async def test_create_user_duplicate_email_returns_409(async_client: AsyncClient
             response = await async_client.post(
                 "/api/v1/admin/users",
                 json={"email": "dup@example.com", "full_name": "Dup", "role": "hr", "password": "password1"},
-                cookies={"access_token": token},
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
             )
         finally:
             app.dependency_overrides.clear()
@@ -213,98 +310,272 @@ async def test_create_user_duplicate_email_returns_409(async_client: AsyncClient
     body = response.json()
     assert body["status"] == 409
     assert "already exists" in body["detail"]
+    assert body["instance"] == "/api/v1/admin/users"
+
+
+async def test_create_user_other_integrity_error_returns_422(async_client: AsyncClient):
+    """FK violation (e.g., bad cm_id slipped past validation) returns structured 422, not 500."""
+    import sqlalchemy.exc
+
+    admin = _make_user(role=UserRole.ADMIN)
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=_scalar_one_or_none_result(admin))
+    mock_db.commit = AsyncMock(
+        side_effect=sqlalchemy.exc.IntegrityError(
+            "INSERT", {}, Exception("violates foreign key constraint \"fk_users_cm_id\"")
+        )
+    )
+    mock_db.rollback = AsyncMock()
+    mock_db.add = MagicMock()
+
+    async def override():
+        yield mock_db
+
+    with patch("app.services.admin_service.hash_password", return_value=FAKE_HASHED):
+        app.dependency_overrides[get_db_session] = override
+        try:
+            token = _make_jwt(admin)
+            response = await async_client.post(
+                "/api/v1/admin/users",
+                json={"email": "x@x.com", "full_name": "X", "role": "hr", "password": "password1"},
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["status"] == 422
 
 
 # ─── AC3: Specialist creation includes specialist_level in response ────────────
 
 async def test_create_specialist_includes_level(async_client: AsyncClient):
     admin = _make_user(role=UserRole.ADMIN)
-    created = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.MIDDLE)
-    created.email = "spec@example.com"
-    created.full_name = "Mid Spec"
-
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = admin
-    mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(return_value=mock_result)
-    mock_db.commit = AsyncMock()
-    mock_db.refresh = AsyncMock(side_effect=lambda obj: None)
-
-    async def override():
-        yield mock_db
+    override, _, _ = _routed_db(_scalar_one_or_none_result(admin))
 
     with patch("app.services.admin_service.hash_password", return_value=FAKE_HASHED):
-        with patch("app.services.admin_service.User", return_value=created):
-            app.dependency_overrides[get_db_session] = override
-            try:
-                token = _make_jwt(admin)
-                response = await async_client.post(
-                    "/api/v1/admin/users",
-                    json={
-                        "email": "spec@example.com",
-                        "full_name": "Mid Spec",
-                        "role": "specialist",
-                        "password": "password1",
-                        "specialist_level": "middle",
-                    },
-                    cookies={"access_token": token},
-                )
-            finally:
-                app.dependency_overrides.clear()
+        app.dependency_overrides[get_db_session] = override
+        try:
+            token = _make_jwt(admin)
+            response = await async_client.post(
+                "/api/v1/admin/users",
+                json={
+                    "email": "spec@example.com",
+                    "full_name": "Mid Spec",
+                    "role": "specialist",
+                    "password": "password1",
+                    "specialist_level": "middle",
+                },
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
 
     assert response.status_code == 201
     data = response.json()
     assert data["specialist_level"] == "middle"
 
 
-# ─── AC4: Creating Specialist with cm_id → notification created ───────────────
+async def test_specialist_without_level_rejected(async_client: AsyncClient):
+    """Pydantic model_validator rejects role=SPECIALIST without specialist_level."""
+    admin = _make_user(role=UserRole.ADMIN)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(admin))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            "/api/v1/admin/users",
+            json={
+                "email": "x@example.com",
+                "full_name": "X",
+                "role": "specialist",
+                "password": "password1",
+                # missing specialist_level
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+async def test_non_specialist_with_level_rejected(async_client: AsyncClient):
+    """Pydantic model_validator rejects role=HR with specialist_level set."""
+    admin = _make_user(role=UserRole.ADMIN)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(admin))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            "/api/v1/admin/users",
+            json={
+                "email": "x@example.com",
+                "full_name": "X",
+                "role": "hr",
+                "password": "password1",
+                "specialist_level": "senior",
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+# ─── AC4: Specialist + cm_id → notification, cm_id validation ────────────────
 
 async def test_cm_notification_created_on_specialist_assignment(async_client: AsyncClient):
     admin = _make_user(role=UserRole.ADMIN)
-    cm_id = uuid4()
-    created = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR, cm_id=cm_id)
-    created.email = "spec2@example.com"
-    created.full_name = "Junior Spec"
+    cm = _make_user(role=UserRole.CM)
 
-    added_objects = []
-
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = admin
-    mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(return_value=mock_result)
-    mock_db.commit = AsyncMock()
-    mock_db.refresh = AsyncMock(side_effect=lambda obj: None)
-
-    def capture_add(obj):
-        added_objects.append(obj)
-
-    mock_db.add = MagicMock(side_effect=capture_add)
-
-    async def override():
-        yield mock_db
+    override, _, added = _routed_db(
+        _scalar_one_or_none_result(admin),  # get_current_user
+        _scalar_one_or_none_result(cm),     # CM validation lookup
+    )
 
     with patch("app.services.admin_service.hash_password", return_value=FAKE_HASHED):
-        with patch("app.services.admin_service.User", return_value=created):
-            app.dependency_overrides[get_db_session] = override
-            try:
-                token = _make_jwt(admin)
-                response = await async_client.post(
-                    "/api/v1/admin/users",
-                    json={
-                        "email": "spec2@example.com",
-                        "full_name": "Junior Spec",
-                        "role": "specialist",
-                        "password": "password1",
-                        "specialist_level": "junior",
-                        "cm_id": str(cm_id),
-                    },
-                    cookies={"access_token": token},
-                )
-            finally:
-                app.dependency_overrides.clear()
+        app.dependency_overrides[get_db_session] = override
+        try:
+            token = _make_jwt(admin)
+            response = await async_client.post(
+                "/api/v1/admin/users",
+                json={
+                    "email": "spec2@example.com",
+                    "full_name": "Junior Spec",
+                    "role": "specialist",
+                    "password": "password1",
+                    "specialist_level": "junior",
+                    "cm_id": str(cm.id),
+                },
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
 
     assert response.status_code == 201
-    notification_objects = [o for o in added_objects if isinstance(o, Notification)]
+    notification_objects = [o for o in added if isinstance(o, Notification)]
     assert len(notification_objects) == 1
-    assert notification_objects[0].user_id == cm_id
+    assert notification_objects[0].user_id == cm.id
     assert "Junior Spec" in notification_objects[0].content
+
+
+async def test_invalid_cm_id_rejected_with_422(async_client: AsyncClient):
+    """cm_id pointing to a non-existent or non-CM user is rejected with 422 RFC 7807."""
+    admin = _make_user(role=UserRole.ADMIN)
+    not_a_cm = _make_user(role=UserRole.HR)  # exists but wrong role
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),    # get_current_user
+        _scalar_one_or_none_result(not_a_cm), # CM validation lookup returns wrong-role user
+    )
+
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            "/api/v1/admin/users",
+            json={
+                "email": "x@example.com",
+                "full_name": "X",
+                "role": "specialist",
+                "password": "password1",
+                "specialist_level": "junior",
+                "cm_id": str(not_a_cm.id),
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    body = response.json()
+    assert "cm" in body["detail"].lower()
+
+
+async def test_inactive_cm_rejected(async_client: AsyncClient):
+    admin = _make_user(role=UserRole.ADMIN)
+    inactive_cm = _make_user(role=UserRole.CM, is_active=False)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),
+        _scalar_one_or_none_result(inactive_cm),
+    )
+
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            "/api/v1/admin/users",
+            json={
+                "email": "x@example.com",
+                "full_name": "X",
+                "role": "specialist",
+                "password": "password1",
+                "specialist_level": "junior",
+                "cm_id": str(inactive_cm.id),
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+# ─── Password length boundaries ──────────────────────────────────────────────
+
+async def test_password_too_long_rejected(async_client: AsyncClient):
+    admin = _make_user(role=UserRole.ADMIN)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(admin))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            "/api/v1/admin/users",
+            json={
+                "email": "x@example.com",
+                "full_name": "X",
+                "role": "hr",
+                "password": "a" * 73,  # >72 bcrypt limit
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+async def test_full_name_whitespace_only_rejected(async_client: AsyncClient):
+    admin = _make_user(role=UserRole.ADMIN)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(admin))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            "/api/v1/admin/users",
+            json={
+                "email": "x@example.com",
+                "full_name": "   ",
+                "role": "hr",
+                "password": "password1",
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422

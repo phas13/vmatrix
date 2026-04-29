@@ -20,6 +20,25 @@ export const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+const CSRF_METHODS = new Set(['post', 'put', 'patch', 'delete']);
+
+function readCsrfCookie(): string | null {
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+apiClient.interceptors.request.use((config) => {
+  const method = (config.method ?? 'get').toLowerCase();
+  if (CSRF_METHODS.has(method)) {
+    const token = readCsrfCookie();
+    if (token) {
+      config.headers = config.headers ?? {};
+      (config.headers as Record<string, string>)['X-CSRF-Token'] = token;
+    }
+  }
+  return config;
+});
+
 let isRefreshing = false;
 let failedQueue: any[] = [];
 

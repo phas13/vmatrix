@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -20,14 +20,18 @@ import {
 } from '@mui/material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { AxiosError } from 'axios';
 import { listUsers, createUser } from '../../api/admin';
 import type { CreateUserPayload } from '../../api/admin';
 import type { User } from '../../types/domain';
+import type { ApiError } from '../../types/api';
 
 // Frontend tests deferred pending Vitest setup
 
 const ROLES = ['specialist', 'cm', 'hr', 'admin'] as const;
 const LEVELS = ['junior', 'middle', 'senior'] as const;
+const PER_PAGE = 20;
+const SUCCESS_AUTO_DISMISS_MS = 5000;
 
 const emptyForm = (): CreateUserPayload => ({
   email: '',
@@ -43,6 +47,7 @@ function CreateUserForm({ cms }: { cms: User[] }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<CreateUserPayload>(emptyForm);
   const [emailError, setEmailError] = useState('');
+  const [genericError, setGenericError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   const mutation = useMutation({
@@ -51,25 +56,43 @@ function CreateUserForm({ cms }: { cms: User[] }) {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       setForm(emptyForm());
       setEmailError('');
+      setGenericError('');
       setSuccessMsg(t('admin.users.createSuccess'));
     },
-    onError: (error: any) => {
+    onError: (error: AxiosError<ApiError>) => {
       setSuccessMsg('');
-      const status = error?.response?.status;
+      const status = error.response?.status;
       if (status === 409) {
         setEmailError(t('admin.users.emailConflict'));
+        return;
       }
+      const detail = error.response?.data?.detail;
+      setGenericError(typeof detail === 'string' && detail ? detail : t('common.genericError'));
     },
   });
 
+  useEffect(() => {
+    if (!successMsg) return;
+    const timer = setTimeout(() => setSuccessMsg(''), SUCCESS_AUTO_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [successMsg]);
+
+  const isSpecialist = form.role === 'specialist';
+  const isFormValid =
+    !!form.email &&
+    !!form.fullName.trim() &&
+    !!form.role &&
+    form.password.length >= 8 &&
+    (!isSpecialist || !!form.specialistLevel);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (mutation.isPending || !isFormValid) return;
     setEmailError('');
+    setGenericError('');
     setSuccessMsg('');
     mutation.mutate(form);
   };
-
-  const isSpecialist = form.role === 'specialist';
 
   return (
     <Paper sx={{ p: 3, mb: 4 }}>
@@ -81,7 +104,10 @@ function CreateUserForm({ cms }: { cms: User[] }) {
           label={t('admin.users.emailLabel')}
           type="email"
           value={form.email}
-          onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+          onChange={(e) => {
+            setForm((f) => ({ ...f, email: e.target.value }));
+            if (emailError) setEmailError('');
+          }}
           required
           fullWidth
           error={!!emailError}
@@ -122,7 +148,7 @@ function CreateUserForm({ cms }: { cms: User[] }) {
           onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
           required
           fullWidth
-          inputProps={{ minLength: 8 }}
+          inputProps={{ minLength: 8, maxLength: 72 }}
         />
         {isSpecialist && (
           <>
@@ -131,7 +157,7 @@ function CreateUserForm({ cms }: { cms: User[] }) {
               <Select
                 value={form.specialistLevel ?? ''}
                 label={t('admin.users.levelLabel')}
-                onChange={(e) => setForm((f) => ({ ...f, specialistLevel: e.target.value as any }))}
+                onChange={(e) => setForm((f) => ({ ...f, specialistLevel: e.target.value as string }))}
               >
                 {LEVELS.map((l) => (
                   <MenuItem key={l} value={l}>
@@ -147,9 +173,7 @@ function CreateUserForm({ cms }: { cms: User[] }) {
                 label={t('admin.users.cmLabel')}
                 onChange={(e) => setForm((f) => ({ ...f, cmId: e.target.value || undefined }))}
               >
-                <MenuItem value="">
-                  <em>—</em>
-                </MenuItem>
+                <MenuItem value="">{t('admin.users.cmNone')}</MenuItem>
                 {cms.map((cm) => (
                   <MenuItem key={cm.id} value={cm.id}>
                     {cm.fullName}
@@ -159,11 +183,20 @@ function CreateUserForm({ cms }: { cms: User[] }) {
             </FormControl>
           </>
         )}
-        {successMsg && <Alert severity="success">{successMsg}</Alert>}
+        {genericError && (
+          <Alert severity="error" onClose={() => setGenericError('')}>
+            {genericError}
+          </Alert>
+        )}
+        {successMsg && (
+          <Alert severity="success" role="status" onClose={() => setSuccessMsg('')}>
+            {successMsg}
+          </Alert>
+        )}
         <Button
           type="submit"
           variant="contained"
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || !isFormValid}
           startIcon={mutation.isPending ? <CircularProgress size={16} /> : null}
         >
           {t('admin.users.create')}
@@ -177,8 +210,8 @@ function UserList() {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const { data, isLoading } = useQuery({
-    queryKey: ['admin', 'users', page],
-    queryFn: () => listUsers(page),
+    queryKey: ['admin', 'users', 'list', page, PER_PAGE],
+    queryFn: () => listUsers({ page, perPage: PER_PAGE }),
   });
 
   if (isLoading) {
@@ -206,10 +239,10 @@ function UserList() {
       <Table>
         <TableHead>
           <TableRow>
-            <TableCell>Email</TableCell>
-            <TableCell>{t('admin.users.fullNameLabel')}</TableCell>
-            <TableCell>{t('admin.users.roleLabel')}</TableCell>
-            <TableCell>{t('admin.users.levelLabel')}</TableCell>
+            <TableCell>{t('admin.users.columns.email')}</TableCell>
+            <TableCell>{t('admin.users.columns.fullName')}</TableCell>
+            <TableCell>{t('admin.users.columns.role')}</TableCell>
+            <TableCell>{t('admin.users.columns.level')}</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -218,21 +251,31 @@ function UserList() {
               <TableCell>{u.email}</TableCell>
               <TableCell>{u.fullName}</TableCell>
               <TableCell>{t(`admin.users.roles.${u.role}`)}</TableCell>
-              <TableCell>{u.specialistLevel ? t(`admin.users.levels.${u.specialistLevel}`) : '—'}</TableCell>
+              <TableCell>
+                {u.specialistLevel ? t(`admin.users.levels.${u.specialistLevel}`) : t('admin.users.noLevel')}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
       {data && data.pages > 1 && (
         <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, p: 2 }}>
-          <Button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            ←
+          <Button
+            disabled={page <= 1}
+            onClick={() => setPage((p) => p - 1)}
+            aria-label={t('common.previous')}
+          >
+            {t('common.previous')}
           </Button>
           <Typography sx={{ alignSelf: 'center' }}>
             {page} / {data.pages}
           </Typography>
-          <Button disabled={page >= data.pages} onClick={() => setPage((p) => p + 1)}>
-            →
+          <Button
+            disabled={page >= data.pages}
+            onClick={() => setPage((p) => p + 1)}
+            aria-label={t('common.next')}
+          >
+            {t('common.next')}
           </Button>
         </Box>
       )}
@@ -243,12 +286,12 @@ function UserList() {
 export default function UsersPage() {
   const { t } = useTranslation();
 
-  // Load all users to populate CM dropdown (filter by role=cm client-side)
-  const { data: allUsersData } = useQuery({
-    queryKey: ['admin', 'users', 'all'],
-    queryFn: () => listUsers(1, 100),
+  // CM dropdown: server-side filter by role + active status to avoid the 100-user cap.
+  const { data: cmsData } = useQuery({
+    queryKey: ['admin', 'users', 'cms'],
+    queryFn: () => listUsers({ role: 'cm', active: true, perPage: 500 }),
   });
-  const cms = (allUsersData?.items ?? []).filter((u) => u.role === 'cm');
+  const cms = cmsData?.items ?? [];
 
   return (
     <Box sx={{ p: 3 }}>

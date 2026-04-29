@@ -30,7 +30,7 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    specialist_level: Mapped[SpecialistLevel | None] = mapped_column(nullable=True)
+    specialist_level: Mapped[SpecialistLevel | None] = mapped_column(String(50), nullable=True)
     cm_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True
     )

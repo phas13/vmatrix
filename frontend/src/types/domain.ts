@@ -7,8 +7,8 @@ export interface User {
   email: string
   fullName: string
   role: UserRole
-  specialistLevel?: SpecialistLevel
-  cmId?: string | null
+  specialistLevel: SpecialistLevel | null
+  cmId: string | null
   isActive: boolean
   createdAt: string
   updatedAt: string

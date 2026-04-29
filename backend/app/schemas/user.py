@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.models.user import SpecialistLevel, UserRole
 
@@ -17,12 +17,39 @@ class SpecialistSummary(BaseModel):
 
 
 class UserCreate(BaseModel):
-    email: EmailStr
+    email: EmailStr = Field(max_length=255)
     full_name: str = Field(min_length=1, max_length=255)
     role: UserRole
-    password: str = Field(min_length=8)
+    password: str = Field(min_length=8, max_length=72)
     specialist_level: SpecialistLevel | None = None
     cm_id: UUID | None = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        return v.strip().lower()
+
+    @field_validator("full_name", mode="before")
+    @classmethod
+    def strip_full_name(cls, v: str) -> str:
+        if not isinstance(v, str):
+            return v
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("full_name must not be empty or whitespace-only")
+        return stripped
+
+    @model_validator(mode="after")
+    def enforce_role_consistency(self) -> "UserCreate":
+        if self.role == UserRole.SPECIALIST:
+            if self.specialist_level is None:
+                raise ValueError("specialist_level is required when role is SPECIALIST")
+        else:
+            if self.specialist_level is not None:
+                raise ValueError("specialist_level is only allowed when role is SPECIALIST")
+            if self.cm_id is not None:
+                raise ValueError("cm_id is only allowed when role is SPECIALIST")
+        return self
 
 
 class UserRead(BaseModel):

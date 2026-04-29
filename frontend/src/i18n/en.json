@@ -17,6 +17,11 @@
   "viewport": {
     "mobileBlock": "vmatrix is optimized for desktop. Please open on a device with a larger screen."
   },
+  "common": {
+    "previous": "Previous",
+    "next": "Next",
+    "genericError": "Something went wrong. Please try again."
+  },
   "admin": {
     "users": {
       "title": "User Management",
@@ -27,15 +32,24 @@
       "passwordLabel": "Password (required)",
       "levelLabel": "Level (required)",
       "cmLabel": "Assigned CM",
+      "cmNone": "Not assigned",
+      "noLevel": "—",
       "emailConflict": "A user with this email already exists",
       "createSuccess": "User created successfully",
       "noUsers": "No users yet",
+      "columns": {
+        "email": "Email",
+        "fullName": "Full Name",
+        "role": "Role",
+        "level": "Level"
+      },
       "roles": {
         "specialist": "Specialist",
         "cm": "Competency Manager",
         "hr": "HR",
         "admin": "Admin"
       },
+      "_levels_policy": "Specialist seniority levels intentionally use English industry terms in all locales (do not translate the values).",
       "levels": {
         "junior": "Junior",
         "middle": "Middle",

@@ -11,15 +11,26 @@ export interface CreateUserPayload {
   cmId?: string;
 }
 
-export async function listUsers(page = 1, perPage = 20): Promise<PaginatedResponse<User>> {
+export interface ListUsersParams {
+  page?: number;
+  perPage?: number;
+  role?: string;
+  active?: boolean;
+}
+
+export async function listUsers(params: ListUsersParams = {}): Promise<PaginatedResponse<User>> {
+  const { page = 1, perPage = 20, role, active } = params;
+  const query: Record<string, string | number | boolean> = { page, per_page: perPage };
+  if (role !== undefined) query.role = role;
+  if (active !== undefined) query.active = active;
   const response = await apiClient.get<PaginatedResponse<User>>('/admin/users', {
-    params: { page, per_page: perPage },
+    params: query,
   });
   return response.data;
 }
 
 export async function createUser(payload: CreateUserPayload): Promise<User> {
-  // Axios interceptor only transforms RESPONSE keys (snake→camel).
+  // Axios response interceptor only transforms RESPONSE keys (snake→camel).
   // Request body must be sent in snake_case manually.
   const body = {
     email: payload.email,

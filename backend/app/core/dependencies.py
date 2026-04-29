@@ -11,7 +11,13 @@ from app.core.security import decode_access_token
 from app.db.session import get_db_session
 from app.models.user import User, UserRole
 
-__all__ = ["get_db_session", "get_current_user", "require_role", "verify_specialist_ownership"]
+__all__ = [
+    "get_db_session",
+    "get_current_user",
+    "require_role",
+    "require_csrf",
+    "verify_specialist_ownership",
+]
 
 
 def _unauthorized(request: Request, detail: str) -> ProblemHTTPException:
@@ -87,6 +93,34 @@ def require_role(*roles: UserRole) -> Callable:
         return current_user
 
     return dependency
+
+
+async def require_csrf(request: Request) -> None:
+    """Enforce double-submit CSRF check on cookie-authenticated state-changing routes.
+
+    Mirrors the pattern in `auth_service.rotate_refresh_token`: the `csrf_token`
+    cookie (non-HttpOnly) must be echoed in the `X-CSRF-Token` header. Constant-time
+    comparison is used to avoid timing oracles.
+    """
+    import secrets
+
+    csrf_header = request.headers.get("X-CSRF-Token")
+    csrf_cookie = request.cookies.get("csrf_token")
+    if (
+        not csrf_header
+        or not csrf_cookie
+        or not secrets.compare_digest(csrf_header, csrf_cookie)
+    ):
+        raise ProblemHTTPException(
+            status_code=403,
+            detail={
+                "type": "https://tools.ietf.org/html/rfc7807",
+                "title": "Forbidden",
+                "status": 403,
+                "detail": "CSRF token missing or invalid",
+                "instance": str(request.url.path),
+            },
+        )
 
 
 async def verify_specialist_ownership(specialist_id: UUID, current_user: User) -> None:
