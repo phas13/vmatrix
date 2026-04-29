@@ -21,6 +21,18 @@ export const apiClient = axios.create({
 });
 
 let isRefreshing = false;
+let failedQueue: any[] = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
 
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
@@ -29,22 +41,41 @@ apiClient.interceptors.response.use(
   },
   async (error) => {
     const originalRequest = error.config;
-    if (error.response?.status === 401 && !originalRequest._retry && !isRefreshing) {
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (originalRequest.url === '/auth/refresh') {
+        isRefreshing = false;
+        return Promise.reject(error);
+      }
+
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then(() => apiClient(originalRequest))
+          .catch((err) => Promise.reject(err));
+      }
+
       originalRequest._retry = true;
       isRefreshing = true;
+
       try {
         await apiClient.post('/auth/refresh');
         isRefreshing = false;
+        processQueue(null, 'refreshed');
         return apiClient(originalRequest);
-      } catch {
+      } catch (refreshError) {
         isRefreshing = false;
+        processQueue(refreshError, null);
         window.location.href = '/login';
-        return Promise.reject(error);
+        return Promise.reject(refreshError);
       }
     }
+
     if (error.response?.status === 403) {
-      window.location.href = '/login';
+      return Promise.reject(error);
     }
+
     return Promise.reject(error);
   }
 );

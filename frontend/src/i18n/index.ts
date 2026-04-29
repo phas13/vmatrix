@@ -3,12 +3,15 @@ import { initReactI18next } from 'react-i18next';
 import en from './en.json';
 import uk from './uk.json';
 
+const savedLang = localStorage.getItem('vmatrix_lang');
+const initialLang = savedLang === 'en' || savedLang === 'uk' ? savedLang : 'uk';
+
 i18n.use(initReactI18next).init({
   resources: {
     en: { translation: en },
     uk: { translation: uk },
   },
-  lng: localStorage.getItem('vmatrix_lang') ?? 'uk',
+  lng: initialLang,
   fallbackLng: 'en',
   interpolation: { escapeValue: false },
 });
