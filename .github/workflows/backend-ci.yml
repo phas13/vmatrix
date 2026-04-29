@@ -2,9 +2,15 @@ name: Backend CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
   pull_request:
-    branches: [main]
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
 
 jobs:
   test:
@@ -15,15 +21,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-dev.txt
+          python-version: '3.12'
       - name: Install dependencies
         run: |
           cd backend
-          pip install -r requirements.txt -r requirements-dev.txt
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
       - name: Run tests
         run: |
           cd backend
@@ -40,8 +43,8 @@ jobs:
 
   push-ecr:
     name: Push to ECR
-    if: ${{ vars.DEPLOY_ENABLED == 'true' && github.event_name == 'push' }}
     needs: build
+    if: ${{ vars.DEPLOY_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,12 +60,14 @@ jobs:
         run: |
           docker build -t vmatrix-backend ./backend
           docker tag vmatrix-backend ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+          docker tag vmatrix-backend ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
           docker push ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+          docker push ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPOSITORY }}:latest
 
   deploy-ecs:
     name: Deploy to ECS
-    if: ${{ vars.DEPLOY_ENABLED == 'true' && github.event_name == 'push' }}
     needs: push-ecr
+    if: ${{ vars.DEPLOY_ENABLED == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS credentials

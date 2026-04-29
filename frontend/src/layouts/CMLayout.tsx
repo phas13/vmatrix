@@ -75,15 +75,25 @@ export default function CMLayout() {
                 <ListItemButton
                   onClick={() => navigate(item.path)}
                   sx={{
+                    justifyContent: isTablet ? 'center' : 'flex-start',
                     borderLeft: isActive ? `3px solid ${theme.palette.primary.main}` : '3px solid transparent',
                     bgcolor: isActive ? 'primary.light' : 'transparent',
                     '& .MuiListItemText-primary': { fontWeight: isActive ? 500 : 400 },
                   }}
                 >
-                  <ListItemIcon sx={{ minWidth: isTablet ? 0 : 40, color: isActive ? 'primary.main' : 'inherit' }}>
+                  <ListItemIcon
+                    sx={{
+                      minWidth: isTablet ? 0 : 40,
+                      justifyContent: 'center',
+                      color: isActive ? 'primary.main' : 'inherit',
+                    }}
+                  >
                     {item.icon}
                   </ListItemIcon>
-                  {!isTablet && <ListItemText primary={t(item.labelKey)} />}
+                  <ListItemText
+                    primary={t(item.labelKey)}
+                    sx={{ display: isTablet ? 'none' : 'block' }}
+                  />
                 </ListItemButton>
               </ListItem>
             );

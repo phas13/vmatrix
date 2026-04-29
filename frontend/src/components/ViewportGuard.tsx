@@ -8,6 +8,12 @@ interface ViewportGuardProps {
 
 export default function ViewportGuard({ children }: ViewportGuardProps) {
   const { t } = useTranslation();
+
+  // SSR Guard
+  if (typeof window === 'undefined') {
+    return <>{children}</>;
+  }
+
   const isMobile = useMediaQuery('(max-width: 767px)');
 
   if (isMobile) {
