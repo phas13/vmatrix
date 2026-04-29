@@ -14,8 +14,10 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@mui/material';
+import useMediaQuery from '@mui/material/useMediaQuery';
 
 const DRAWER_WIDTH = 240;
+const DRAWER_COLLAPSED = 64;
 
 const navItems = [
   { labelKey: 'nav.dashboard', path: '/cm/dashboard', icon: <DashboardIcon /> },
@@ -23,6 +25,8 @@ const navItems = [
 
 export default function CMLayout() {
   const theme = useTheme();
+  const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1279px)');
+  const drawerWidth = isTablet ? DRAWER_COLLAPSED : DRAWER_WIDTH;
   const { t, i18n } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
@@ -57,9 +61,9 @@ export default function CMLayout() {
       <Drawer
         variant="permanent"
         sx={{
-          width: DRAWER_WIDTH,
+          width: drawerWidth,
           flexShrink: 0,
-          '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box' },
+          '& .MuiDrawer-paper': { width: drawerWidth, boxSizing: 'border-box', overflowX: 'hidden' },
         }}
       >
         <Toolbar />
@@ -76,10 +80,10 @@ export default function CMLayout() {
                     '& .MuiListItemText-primary': { fontWeight: isActive ? 500 : 400 },
                   }}
                 >
-                  <ListItemIcon sx={{ color: isActive ? 'primary.main' : 'inherit' }}>
+                  <ListItemIcon sx={{ minWidth: isTablet ? 0 : 40, color: isActive ? 'primary.main' : 'inherit' }}>
                     {item.icon}
                   </ListItemIcon>
-                  <ListItemText primary={t(item.labelKey)} />
+                  {!isTablet && <ListItemText primary={t(item.labelKey)} />}
                 </ListItemButton>
               </ListItem>
             );

@@ -13,5 +13,8 @@
   },
   "lang": {
     "switch": "UK"
+  },
+  "viewport": {
+    "mobileBlock": "vmatrix is optimized for desktop. Please open on a device with a larger screen."
   }
 }

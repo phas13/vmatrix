@@ -15,7 +15,8 @@ import GridViewIcon from '@mui/icons-material/GridView';
 import HistoryIcon from '@mui/icons-material/History';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useTheme, useMediaQuery } from '@mui/material';
+import { useTheme } from '@mui/material';
+import useMediaQuery from '@mui/material/useMediaQuery';
 
 const DRAWER_WIDTH = 240;
 const DRAWER_COLLAPSED = 64;
@@ -28,7 +29,7 @@ const navItems = [
 
 export default function SpecialistLayout() {
   const theme = useTheme();
-  const isTablet = useMediaQuery(theme.breakpoints.between('md', 'lg'));
+  const isTablet = useMediaQuery('(min-width: 768px) and (max-width: 1279px)');
   const drawerWidth = isTablet ? DRAWER_COLLAPSED : DRAWER_WIDTH;
   const { t, i18n } = useTranslation();
   const location = useLocation();

@@ -44,6 +44,12 @@ jobs:
           cd frontend
           npm ci
           npm run build
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
 
   sync-s3:
     name: Sync to S3
@@ -51,8 +57,20 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
       - name: Sync dist/ to S3
-        run: echo "TODO - configure AWS credentials and S3 bucket"
+        run: |
+          aws s3 sync frontend/dist/ s3://${{ secrets.S3_BUCKET }} --delete
 
   invalidate-cf:
     name: Invalidate CloudFront
@@ -60,5 +78,14 @@ jobs:
     needs: sync-s3
     runs-on: ubuntu-latest
     steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
       - name: Invalidate CloudFront distribution
-        run: echo "TODO - configure CloudFront distribution ID"
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"

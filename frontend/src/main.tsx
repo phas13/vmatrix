@@ -6,6 +6,7 @@ import CssBaseline from '@mui/material/CssBaseline';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import theme from './theme';
 import App from './App';
+import { ViewportGuard } from './components';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,9 +25,11 @@ createRoot(rootElement).render(
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <QueryClientProvider client={queryClient}>
-        <Suspense fallback={<div>Loading...</div>}>
-          <App />
-        </Suspense>
+        <ViewportGuard>
+          <Suspense fallback={<div>Loading...</div>}>
+            <App />
+          </Suspense>
+        </ViewportGuard>
       </QueryClientProvider>
     </ThemeProvider>
   </StrictMode>
