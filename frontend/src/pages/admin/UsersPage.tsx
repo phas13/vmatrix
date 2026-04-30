@@ -148,7 +148,7 @@ function CreateUserForm({ cms }: { cms: User[] }) {
           onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
           required
           fullWidth
-          inputProps={{ minLength: 8, maxLength: 72 }}
+          slotProps={{ htmlInput: { minLength: 8, maxLength: 72 } }}
         />
         {isSpecialist && (
           <>

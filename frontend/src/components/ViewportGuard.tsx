@@ -29,7 +29,7 @@ export default function ViewportGuard({ children }: ViewportGuardProps) {
           textAlign: 'center',
         }}
       >
-        <Typography variant="body1" color="text.secondary" maxWidth={360}>
+        <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 360 }}>
           {t('viewport.mobileBlock')}
         </Typography>
       </Box>

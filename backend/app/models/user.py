@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -28,9 +28,29 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[UserRole] = mapped_column(nullable=False)
+    # Native Postgres enum already created by migration a1b2c3d4e5f6; use values_callable
+    # so SQLAlchemy serializes UserRole.ADMIN as "admin" (not "ADMIN").
+    role: Mapped[UserRole] = mapped_column(
+        SAEnum(
+            UserRole,
+            name="userrole",
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,
+        ),
+        nullable=False,
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    specialist_level: Mapped[SpecialistLevel | None] = mapped_column(String(50), nullable=True)
+    # Migration stores specialist_level as VARCHAR(50); native_enum=False keeps SQLAlchemy
+    # in lock-step (validates values without touching the DB type).
+    specialist_level: Mapped[SpecialistLevel | None] = mapped_column(
+        SAEnum(
+            SpecialistLevel,
+            native_enum=False,
+            length=50,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=True,
+    )
     cm_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True
     )
