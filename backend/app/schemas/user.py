@@ -52,6 +52,11 @@ class UserCreate(BaseModel):
         return self
 
 
+class UserUpdate(BaseModel):
+    """Partial update schema — Story 2.2 exposes only cm_id reassignment."""
+    cm_id: UUID | None
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

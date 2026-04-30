@@ -41,8 +41,11 @@
         "email": "Email",
         "fullName": "Повне ім'я",
         "role": "Роль",
-        "level": "Рівень"
+        "level": "Рівень",
+        "cmAssignment": "Призначений КМ"
       },
+      "cmUnassigned": "— Не призначено",
+      "reassignError": "Не вдалося оновити призначення КМ",
       "roles": {
         "specialist": "Спеціаліст",
         "cm": "Менеджер компетенцій",

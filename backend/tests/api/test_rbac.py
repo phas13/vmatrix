@@ -180,9 +180,7 @@ async def test_cm_team_returns_only_assigned_specialists(async_client):
 # ─── AC4: Cross-Specialist access → 404 (resource existence not revealed) ─────
 
 async def test_verify_specialist_ownership_own_resource_passes(async_client):
-    from uuid import uuid4 as _uuid4
     from app.core.dependencies import verify_specialist_ownership
-    from app.core.exceptions import ProblemHTTPException
 
     specialist = _make_user(UserRole.SPECIALIST)
     # Accessing own resource — should not raise

@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,7 +10,7 @@ from app.core.dependencies import (
 )
 from app.models.user import User, UserRole
 from app.schemas.pagination import PaginatedResponse
-from app.schemas.user import UserCreate, UserRead
+from app.schemas.user import UserCreate, UserRead, UserUpdate
 from app.services import admin_service
 
 router = APIRouter()
@@ -52,5 +54,25 @@ async def create_user(
 ):
     user = await admin_service.create_user(
         body, db, actor_id=current_user.id, instance=str(request.url.path)
+    )
+    return user
+
+
+@router.patch(
+    "/users/{user_id}",
+    response_model=UserRead,
+    dependencies=[Depends(require_csrf)],
+)
+async def update_user(
+    user_id: UUID,
+    body: UserUpdate,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db_session),
+):
+    user = await admin_service.update_specialist_cm(
+        user_id, body.cm_id, db,
+        actor_id=current_user.id,
+        instance=str(request.url.path),
     )
     return user

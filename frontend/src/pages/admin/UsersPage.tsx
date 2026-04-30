@@ -21,7 +21,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AxiosError } from 'axios';
-import { listUsers, createUser } from '../../api/admin';
+import { listUsers, createUser, updateUserCm } from '../../api/admin';
 import type { CreateUserPayload } from '../../api/admin';
 import type { User } from '../../types/domain';
 import type { ApiError } from '../../types/api';
@@ -206,12 +206,28 @@ function CreateUserForm({ cms }: { cms: User[] }) {
   );
 }
 
-function UserList() {
+function UserList({ activeCMs }: { activeCMs: User[] }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const [reassignError, setReassignError] = useState('');
+
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'users', 'list', page, PER_PAGE],
     queryFn: () => listUsers({ page, perPage: PER_PAGE }),
+  });
+
+  const reassignMutation = useMutation({
+    mutationFn: ({ userId, cmId }: { userId: string; cmId: string | null }) =>
+      updateUserCm(userId, { cmId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      setReassignError('');
+    },
+    onError: (error: AxiosError<ApiError>) => {
+      const detail = error.response?.data?.detail;
+      setReassignError(typeof detail === 'string' && detail ? detail : t('admin.users.reassignError'));
+    },
   });
 
   if (isLoading) {
@@ -236,6 +252,11 @@ function UserList() {
 
   return (
     <Paper>
+      {reassignError && (
+        <Alert severity="error" onClose={() => setReassignError('')} sx={{ mb: 0 }}>
+          {reassignError}
+        </Alert>
+      )}
       <Table>
         <TableHead>
           <TableRow>
@@ -243,6 +264,7 @@ function UserList() {
             <TableCell>{t('admin.users.columns.fullName')}</TableCell>
             <TableCell>{t('admin.users.columns.role')}</TableCell>
             <TableCell>{t('admin.users.columns.level')}</TableCell>
+            <TableCell>{t('admin.users.columns.cmAssignment')}</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -253,6 +275,30 @@ function UserList() {
               <TableCell>{t(`admin.users.roles.${u.role}`)}</TableCell>
               <TableCell>
                 {u.specialistLevel ? t(`admin.users.levels.${u.specialistLevel}`) : t('admin.users.noLevel')}
+              </TableCell>
+              <TableCell>
+                {u.role === 'specialist' ? (
+                  <FormControl size="small" sx={{ minWidth: 180 }}>
+                    <Select
+                      value={u.cmId ?? ''}
+                      displayEmpty
+                      disabled={reassignMutation.isPending}
+                      onChange={(e) => {
+                        const selected = e.target.value as string;
+                        reassignMutation.mutate({ userId: u.id, cmId: selected || null });
+                      }}
+                    >
+                      <MenuItem value="">{t('admin.users.cmUnassigned')}</MenuItem>
+                      {activeCMs.map((cm) => (
+                        <MenuItem key={cm.id} value={cm.id}>
+                          {cm.fullName}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                ) : (
+                  '—'
+                )}
               </TableCell>
             </TableRow>
           ))}
@@ -299,7 +345,7 @@ export default function UsersPage() {
         {t('admin.users.title')}
       </Typography>
       <CreateUserForm cms={cms} />
-      <UserList />
+      <UserList activeCMs={cms} />
     </Box>
   );
 }

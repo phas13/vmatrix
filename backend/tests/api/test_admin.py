@@ -579,3 +579,263 @@ async def test_full_name_whitespace_only_rejected(async_client: AsyncClient):
         app.dependency_overrides.clear()
 
     assert response.status_code == 422
+
+
+# ─── Story 2.2: PATCH /admin/users/{user_id} ─────────────────────────────────
+
+PATCH_URL = "/api/v1/admin/users/{user_id}"
+
+
+async def test_patch_user_requires_admin_role(async_client: AsyncClient):
+    """AC4: Non-admin caller → 403."""
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(specialist))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.patch(
+            PATCH_URL.format(user_id=str(specialist.id)),
+            json={"cm_id": None},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+async def test_patch_user_unauthenticated_returns_401(async_client: AsyncClient):
+    """AC4: Unauthenticated → 401."""
+    response = await async_client.patch(
+        PATCH_URL.format(user_id=str(uuid4())),
+        json={"cm_id": None},
+        cookies={"csrf_token": CSRF_TOKEN},
+        headers=_csrf_headers(),
+    )
+    assert response.status_code == 401
+
+
+async def test_patch_specialist_cm_updates_only_cm_id(async_client: AsyncClient):
+    """AC3: Admin patches specialist cm_id → 200, other fields intact."""
+    admin = _make_user(role=UserRole.ADMIN)
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(
+        role=UserRole.SPECIALIST,
+        specialist_level=SpecialistLevel.JUNIOR,
+        cm_id=None,
+    )
+    specialist.full_name = "Test Specialist"
+
+    override, mock_db, _ = _routed_db(
+        _scalar_one_or_none_result(admin),       # get_current_user
+        _scalar_one_or_none_result(specialist),  # load target user
+        _scalar_one_or_none_result(cm),          # CM validation lookup
+    )
+
+    async def fake_refresh(obj):
+        _populate_after_insert(obj)
+
+    mock_db.refresh = AsyncMock(side_effect=fake_refresh)
+
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.patch(
+            PATCH_URL.format(user_id=str(specialist.id)),
+            json={"cm_id": str(cm.id)},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["role"] == "specialist"
+    assert data["specialist_level"] == "junior"
+
+
+async def test_cm_notification_created_on_reassignment(async_client: AsyncClient):
+    """AC1: Notification created for new CM on successful reassignment."""
+    admin = _make_user(role=UserRole.ADMIN)
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(
+        role=UserRole.SPECIALIST,
+        specialist_level=SpecialistLevel.MIDDLE,
+        cm_id=None,
+    )
+    specialist.full_name = "Jane Doe"
+
+    override, mock_db, added = _routed_db(
+        _scalar_one_or_none_result(admin),       # get_current_user
+        _scalar_one_or_none_result(specialist),  # load target user
+        _scalar_one_or_none_result(cm),          # CM validation
+    )
+
+    async def fake_refresh(obj):
+        _populate_after_insert(obj)
+
+    mock_db.refresh = AsyncMock(side_effect=fake_refresh)
+
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.patch(
+            PATCH_URL.format(user_id=str(specialist.id)),
+            json={"cm_id": str(cm.id)},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    notifications = [o for o in added if isinstance(o, Notification)]
+    assert len(notifications) == 1
+    assert notifications[0].user_id == cm.id
+    assert "Jane Doe" in notifications[0].content
+
+
+async def test_patch_specialist_unassign_cm_no_notification(async_client: AsyncClient):
+    """AC1: cm_id=null (unassign) → success, no notification created."""
+    admin = _make_user(role=UserRole.ADMIN)
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(
+        role=UserRole.SPECIALIST,
+        specialist_level=SpecialistLevel.JUNIOR,
+        cm_id=cm.id,
+    )
+
+    override, mock_db, added = _routed_db(
+        _scalar_one_or_none_result(admin),       # get_current_user
+        _scalar_one_or_none_result(specialist),  # load target user
+        # no CM lookup because cm_id=null
+    )
+
+    async def fake_refresh(obj):
+        _populate_after_insert(obj)
+
+    mock_db.refresh = AsyncMock(side_effect=fake_refresh)
+
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.patch(
+            PATCH_URL.format(user_id=str(specialist.id)),
+            json={"cm_id": None},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    notifications = [o for o in added if isinstance(o, Notification)]
+    assert len(notifications) == 0
+
+
+async def test_patch_nonexistent_user_returns_404(async_client: AsyncClient):
+    """User not found → 404 RFC 7807."""
+    admin = _make_user(role=UserRole.ADMIN)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),  # get_current_user
+        _scalar_one_or_none_result(None),   # target user not found
+    )
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.patch(
+            PATCH_URL.format(user_id=str(uuid4())),
+            json={"cm_id": None},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["status"] == 404
+    assert "user-not-found" in body["type"]
+
+
+async def test_patch_cm_user_returns_422(async_client: AsyncClient):
+    """Non-Specialist target → 422 invalid-assignment-target."""
+    admin = _make_user(role=UserRole.ADMIN)
+    cm_target = _make_user(role=UserRole.CM)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),      # get_current_user
+        _scalar_one_or_none_result(cm_target),  # load target user (wrong role)
+    )
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.patch(
+            PATCH_URL.format(user_id=str(cm_target.id)),
+            json={"cm_id": None},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    body = response.json()
+    assert "invalid-assignment-target" in body["type"]
+
+
+async def test_patch_invalid_cm_id_returns_422(async_client: AsyncClient):
+    """cm_id points to non-CM → 422 invalid-cm-assignment."""
+    admin = _make_user(role=UserRole.ADMIN)
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+    not_a_cm = _make_user(role=UserRole.HR)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),      # get_current_user
+        _scalar_one_or_none_result(specialist), # load target user
+        _scalar_one_or_none_result(not_a_cm),   # CM validation → wrong role
+    )
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.patch(
+            PATCH_URL.format(user_id=str(specialist.id)),
+            json={"cm_id": str(not_a_cm.id)},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    body = response.json()
+    assert "invalid-cm-assignment" in body["type"]
+
+
+async def test_patch_self_cm_assignment_returns_422(async_client: AsyncClient):
+    """cm_id == user_id → 422 self-cm-assignment."""
+    admin = _make_user(role=UserRole.ADMIN)
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),      # get_current_user
+        _scalar_one_or_none_result(specialist), # load target user
+    )
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.patch(
+            PATCH_URL.format(user_id=str(specialist.id)),
+            json={"cm_id": str(specialist.id)},  # self-assignment
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    body = response.json()
+    assert "self-cm-assignment" in body["type"]

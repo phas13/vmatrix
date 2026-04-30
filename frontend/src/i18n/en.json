@@ -41,8 +41,11 @@
         "email": "Email",
         "fullName": "Full Name",
         "role": "Role",
-        "level": "Level"
+        "level": "Level",
+        "cmAssignment": "CM Assignment"
       },
+      "cmUnassigned": "— Unassigned",
+      "reassignError": "Failed to update CM assignment",
       "roles": {
         "specialist": "Specialist",
         "cm": "Competency Manager",

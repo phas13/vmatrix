@@ -29,6 +29,17 @@ export async function listUsers(params: ListUsersParams = {}): Promise<Paginated
   return response.data;
 }
 
+export interface UpdateUserCmPayload {
+  cmId: string | null;
+}
+
+export async function updateUserCm(userId: string, payload: UpdateUserCmPayload): Promise<User> {
+  // Request body must be snake_case — Axios interceptor only transforms responses.
+  const body = { cm_id: payload.cmId };
+  const response = await apiClient.patch<User>(`/admin/users/${userId}`, body);
+  return response.data;
+}
+
 export async function createUser(payload: CreateUserPayload): Promise<User> {
   // Axios response interceptor only transforms RESPONSE keys (snake→camel).
   // Request body must be sent in snake_case manually.

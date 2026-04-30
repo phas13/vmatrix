@@ -106,6 +106,79 @@ async def create_user(
     return user
 
 
+async def update_specialist_cm(
+    user_id: UUID,
+    cm_id: UUID | None,
+    db: AsyncSession,
+    *,
+    actor_id: UUID,
+    instance: str,
+) -> User:
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise ProblemHTTPException(
+            status_code=404,
+            detail={
+                "type": "https://vmatrix.app/errors/user-not-found",
+                "title": "User not found",
+                "status": 404,
+                "detail": f"User {user_id} does not exist",
+                "instance": instance,
+            },
+        )
+
+    if user.role != UserRole.SPECIALIST:
+        raise ProblemHTTPException(
+            status_code=422,
+            detail={
+                "type": "https://vmatrix.app/errors/invalid-assignment-target",
+                "title": "Invalid assignment target",
+                "status": 422,
+                "detail": "CM assignment can only be updated for Specialist accounts",
+                "instance": instance,
+            },
+        )
+
+    if cm_id is not None and cm_id == user_id:
+        raise ProblemHTTPException(
+            status_code=422,
+            detail={
+                "type": "https://vmatrix.app/errors/self-cm-assignment",
+                "title": "Self-assignment not allowed",
+                "status": 422,
+                "detail": "A user cannot be assigned as their own CM",
+                "instance": instance,
+            },
+        )
+
+    if cm_id is not None:
+        cm_result = await db.execute(select(User).where(User.id == cm_id))
+        cm_user = cm_result.scalar_one_or_none()
+        if cm_user is None or cm_user.role != UserRole.CM or not cm_user.is_active:
+            raise _invalid_cm(instance)
+
+    user.cm_id = cm_id
+
+    if cm_id is not None:
+        notification = Notification(
+            user_id=cm_id,
+            type=NotificationType.NEW_CM_ASSIGNMENT,
+            content=f"{user.full_name} has been assigned to you",
+        )
+        db.add(notification)
+
+    await db.commit()
+    await db.refresh(user)
+    logger.info(
+        "admin cm reassignment actor_id=%s specialist_id=%s new_cm_id=%s",
+        actor_id,
+        user_id,
+        cm_id,
+    )
+    return user
+
+
 async def list_users(
     page: int,
     per_page: int,
