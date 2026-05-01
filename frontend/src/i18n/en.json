@@ -20,7 +20,9 @@
   "common": {
     "previous": "Previous",
     "next": "Next",
-    "genericError": "Something went wrong. Please try again."
+    "genericError": "Something went wrong. Please try again.",
+    "cancel": "Cancel",
+    "close": "Close"
   },
   "admin": {
     "users": {
@@ -59,7 +61,23 @@
         "junior": "Junior",
         "middle": "Middle",
         "senior": "Senior"
-      }
+      },
+      "resetCredentials": "Reset credentials",
+      "resetConfirmTitle": "Reset credentials",
+      "resetConfirmMessage": "This will generate a new temporary password for {{name}}. You will need to share it manually. This cannot be undone.",
+      "resetConfirmButton": "Reset",
+      "resetSuccess": "Temporary password (shown once):",
+      "resetCopy": "Copy to clipboard",
+      "resetCopied": "Copied!",
+      "resetError": "Failed to reset credentials"
+    },
+    "settings": {
+      "title": "System Settings",
+      "promotionThreshold": "Promotion threshold (%)",
+      "defaultDomain": "Default competency domain",
+      "save": "Save settings",
+      "saveSuccess": "Settings saved",
+      "saveError": "Failed to save settings"
     }
   }
 }

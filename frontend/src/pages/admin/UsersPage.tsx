@@ -4,7 +4,13 @@ import {
   Box,
   Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Paper,
@@ -18,10 +24,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AxiosError } from 'axios';
-import { listUsers, createUser, updateUserCm } from '../../api/admin';
+import { listUsers, createUser, updateUserCm, resetUserCredentials } from '../../api/admin';
 import type { CreateUserPayload } from '../../api/admin';
 import type { User } from '../../types/domain';
 import type { ApiError } from '../../types/api';
@@ -211,6 +218,10 @@ function UserList({ activeCMs }: { activeCMs: User[] }) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [reassignError, setReassignError] = useState('');
+  const [resetTargetUser, setResetTargetUser] = useState<User | null>(null);
+  const [tempPassword, setTempPassword] = useState<string>('');
+  const [copied, setCopied] = useState(false);
+  const [resetError, setResetError] = useState('');
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'users', 'list', page, PER_PAGE],
@@ -230,6 +241,16 @@ function UserList({ activeCMs }: { activeCMs: User[] }) {
       const message = typeof detail === 'object' && detail !== null ? (detail as any).detail : detail;
       setReassignError(typeof message === 'string' && message ? message : t('admin.users.reassignError'));
     },
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: (userId: string) => resetUserCredentials(userId),
+    onSuccess: (result) => {
+      setTempPassword(result.temporaryPassword);
+      setResetTargetUser(null);
+      setResetError('');
+    },
+    onError: () => setResetError(t('admin.users.resetError')),
   });
 
   if (isLoading) {
@@ -253,6 +274,7 @@ function UserList({ activeCMs }: { activeCMs: User[] }) {
   }
 
   return (
+    <>
     <Paper>
       {reassignError && (
         <Alert severity="error" onClose={() => setReassignError('')} sx={{ mb: 0 }}>
@@ -279,34 +301,45 @@ function UserList({ activeCMs }: { activeCMs: User[] }) {
                 {u.specialistLevel ? t(`admin.users.levels.${u.specialistLevel}`) : t('admin.users.noLevel')}
               </TableCell>
               <TableCell>
-                {u.role === 'specialist' ? (
-                  <FormControl size="small" sx={{ minWidth: 180 }}>
-                    <Select
-                      value={u.cmId ?? ''}
-                      displayEmpty
-                      disabled={reassignMutation.isPending}
-                      onChange={(e) => {
-                        const selected = e.target.value as string;
-                        reassignMutation.mutate({ userId: u.id, cmId: selected || null });
-                      }}
-                    >
-                      <MenuItem value="">{t('admin.users.cmUnassigned')}</MenuItem>
-                      {activeCMs.map((cm) => (
-                        <MenuItem key={cm.id} value={cm.id}>
-                          {cm.fullName}
-                        </MenuItem>
-                      ))}
-                      {/* Fix: ensure current CM is shown even if inactive or role changed */}
-                      {u.cmId && !activeCMs.some((c) => c.id === u.cmId) && (
-                        <MenuItem value={u.cmId} disabled>
-                          {t('admin.users.unknownCm')} ({u.cmId.slice(0, 8)})
-                        </MenuItem>
-                      )}
-                    </Select>
-                  </FormControl>
-                ) : (
-                  t('admin.users.notApplicable')
-                )}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                  {u.role === 'specialist' ? (
+                    <FormControl size="small" sx={{ minWidth: 180 }}>
+                      <Select
+                        value={u.cmId ?? ''}
+                        displayEmpty
+                        disabled={reassignMutation.isPending}
+                        onChange={(e) => {
+                          const selected = e.target.value as string;
+                          reassignMutation.mutate({ userId: u.id, cmId: selected || null });
+                        }}
+                      >
+                        <MenuItem value="">{t('admin.users.cmUnassigned')}</MenuItem>
+                        {activeCMs.map((cm) => (
+                          <MenuItem key={cm.id} value={cm.id}>
+                            {cm.fullName}
+                          </MenuItem>
+                        ))}
+                        {/* Fix: ensure current CM is shown even if inactive or role changed */}
+                        {u.cmId && !activeCMs.some((c) => c.id === u.cmId) && (
+                          <MenuItem value={u.cmId} disabled>
+                            {t('admin.users.unknownCm')} ({u.cmId.slice(0, 8)})
+                          </MenuItem>
+                        )}
+                      </Select>
+                    </FormControl>
+                  ) : (
+                    t('admin.users.notApplicable')
+                  )}
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size="small"
+                    sx={{ ml: 2 }}
+                    onClick={() => setResetTargetUser(u)}
+                  >
+                    {t('admin.users.resetCredentials')}
+                  </Button>
+                </Box>
               </TableCell>
             </TableRow>
           ))}
@@ -334,6 +367,68 @@ function UserList({ activeCMs }: { activeCMs: User[] }) {
         </Box>
       )}
     </Paper>
+
+    {/* Confirm reset dialog */}
+    <Dialog open={!!resetTargetUser} onClose={() => setResetTargetUser(null)}>
+      <DialogTitle>{t('admin.users.resetConfirmTitle')}</DialogTitle>
+      <DialogContent>
+        <DialogContentText>
+          {t('admin.users.resetConfirmMessage', { name: resetTargetUser?.fullName ?? '' })}
+        </DialogContentText>
+        {resetError && (
+          <Alert severity="error" sx={{ mt: 1 }}>
+            {resetError}
+          </Alert>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setResetTargetUser(null)}>{t('common.cancel')}</Button>
+        <Button
+          color="error"
+          disabled={resetMutation.isPending}
+          startIcon={resetMutation.isPending ? <CircularProgress size={16} /> : null}
+          onClick={() => resetTargetUser && resetMutation.mutate(resetTargetUser.id)}
+        >
+          {t('admin.users.resetConfirmButton')}
+        </Button>
+      </DialogActions>
+    </Dialog>
+
+    {/* Success dialog — shows temp password once */}
+    <Dialog open={!!tempPassword} onClose={() => { setTempPassword(''); setCopied(false); }}>
+      <DialogTitle>{t('admin.users.resetSuccess')}</DialogTitle>
+      <DialogContent>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+          <Typography
+            variant="body1"
+            sx={{ fontFamily: 'monospace', wordBreak: 'break-all', flexGrow: 1 }}
+          >
+            {tempPassword}
+          </Typography>
+          <IconButton
+            onClick={() => {
+              navigator.clipboard.writeText(tempPassword);
+              setCopied(true);
+            }}
+            size="small"
+            aria-label={t('admin.users.resetCopy')}
+          >
+            <ContentCopyIcon fontSize="small" />
+          </IconButton>
+        </Box>
+        {copied && (
+          <Typography variant="caption" color="success.main">
+            {t('admin.users.resetCopied')}
+          </Typography>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => { setTempPassword(''); setCopied(false); }}>
+          {t('common.close')}
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 }
 

@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from app.core.security import create_access_token
 from app.db.session import get_db_session
 from app.models.notification import Notification
+from app.models.system_settings import SystemSettings
 from app.models.user import SpecialistLevel, User, UserRole
 from main import app
 
@@ -839,3 +840,299 @@ async def test_patch_self_cm_assignment_returns_422(async_client: AsyncClient):
     assert response.status_code == 422
     body = response.json()
     assert "self-cm-assignment" in body["type"]
+
+
+# ─── Story 2.3: GET /admin/settings ──────────────────────────────────────────
+
+
+def _make_settings(promotion_threshold: int = 90, domain: str = "DevOps") -> MagicMock:
+    s = MagicMock(spec=SystemSettings)
+    s.id = 1
+    s.promotion_threshold = promotion_threshold
+    s.default_competency_domain = domain
+    s.created_at = _now()
+    s.updated_at = _now()
+    return s
+
+
+async def test_get_settings_as_admin_returns_200(async_client: AsyncClient):
+    """AC4: Admin GET /admin/settings → 200 with settings."""
+    admin = _make_user(role=UserRole.ADMIN)
+    settings = _make_settings()
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),     # get_current_user
+        _scalar_one_or_none_result(settings),  # get_settings
+    )
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.get(
+            "/api/v1/admin/settings",
+            cookies={"access_token": token},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["promotion_threshold"] == 90
+    assert data["default_competency_domain"] == "DevOps"
+
+
+async def test_get_settings_as_non_admin_returns_403(async_client: AsyncClient):
+    """AC4: Non-admin GET /admin/settings → 403."""
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(specialist))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.get(
+            "/api/v1/admin/settings",
+            cookies={"access_token": token},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+# ─── Story 2.3: PATCH /admin/settings ────────────────────────────────────────
+
+
+async def test_patch_settings_as_admin_updates_threshold(async_client: AsyncClient):
+    """AC1: Admin PATCH updates promotion_threshold → 200 with updated value."""
+    admin = _make_user(role=UserRole.ADMIN)
+    settings = _make_settings(promotion_threshold=90)
+
+    override, mock_db, _ = _routed_db(
+        _scalar_one_or_none_result(admin),     # get_current_user
+        _scalar_one_or_none_result(settings),  # get_settings inside update_settings
+    )
+
+    async def fake_refresh(obj):
+        obj.promotion_threshold = 75
+
+    mock_db.refresh = AsyncMock(side_effect=fake_refresh)
+
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.patch(
+            "/api/v1/admin/settings",
+            json={"promotion_threshold": 75},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+
+
+async def test_patch_settings_requires_csrf(async_client: AsyncClient):
+    """PATCH without CSRF token cookie → 403."""
+    admin = _make_user(role=UserRole.ADMIN)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(admin))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.patch(
+            "/api/v1/admin/settings",
+            json={"promotion_threshold": 80},
+            cookies={"access_token": token},  # no csrf_token cookie
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    body = response.json()
+    assert "csrf" in body["detail"].lower()
+
+
+async def test_patch_settings_as_non_admin_returns_403(async_client: AsyncClient):
+    """AC4: Non-admin PATCH /admin/settings → 403."""
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(specialist))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.patch(
+            "/api/v1/admin/settings",
+            json={"promotion_threshold": 80},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+async def test_patch_settings_threshold_out_of_range_returns_422(async_client: AsyncClient):
+    """Pydantic validation: threshold=0 or 101 → 422."""
+    admin = _make_user(role=UserRole.ADMIN)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(admin))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.patch(
+            "/api/v1/admin/settings",
+            json={"promotion_threshold": 0},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+# ─── Story 2.3: POST /admin/users/{user_id}/actions/reset-credentials ────────
+
+RESET_URL = "/api/v1/admin/users/{user_id}/actions/reset-credentials"
+
+
+async def test_reset_credentials_as_admin_returns_temp_password(async_client: AsyncClient):
+    """AC3: Admin resets credentials → 200 with temporary_password."""
+    admin = _make_user(role=UserRole.ADMIN)
+    target = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+
+    override, mock_db, added = _routed_db(
+        _scalar_one_or_none_result(admin),   # get_current_user
+        _scalar_one_or_none_result(target),  # user lookup in reset_user_credentials
+    )
+
+    with patch("app.services.admin_service.hash_password", return_value="$2b$fake"):
+        app.dependency_overrides[get_db_session] = override
+        try:
+            token = _make_jwt(admin)
+            response = await async_client.post(
+                RESET_URL.format(user_id=str(target.id)),
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "temporary_password" in data
+    assert len(data["temporary_password"]) > 0
+    assert data["message"] == "Credentials reset successfully"
+
+
+async def test_reset_credentials_revokes_refresh_tokens(async_client: AsyncClient):
+    """AC3: Credential reset issues bulk UPDATE on refresh_tokens."""
+    admin = _make_user(role=UserRole.ADMIN)
+    target = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+
+    override, mock_db, _ = _routed_db(
+        _scalar_one_or_none_result(admin),
+        _scalar_one_or_none_result(target),
+    )
+
+    with patch("app.services.admin_service.hash_password", return_value="$2b$fake"):
+        app.dependency_overrides[get_db_session] = override
+        try:
+            token = _make_jwt(admin)
+            await async_client.post(
+                RESET_URL.format(user_id=str(target.id)),
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    # execute called at least twice: user lookup + bulk UPDATE
+    assert mock_db.execute.call_count >= 2
+
+
+async def test_reset_credentials_creates_notification(async_client: AsyncClient):
+    """AC3: CREDENTIAL_RESET notification created for target user."""
+    admin = _make_user(role=UserRole.ADMIN)
+    target = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+
+    override, _, added = _routed_db(
+        _scalar_one_or_none_result(admin),
+        _scalar_one_or_none_result(target),
+    )
+
+    with patch("app.services.admin_service.hash_password", return_value="$2b$fake"):
+        app.dependency_overrides[get_db_session] = override
+        try:
+            token = _make_jwt(admin)
+            await async_client.post(
+                RESET_URL.format(user_id=str(target.id)),
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    notifications = [o for o in added if isinstance(o, Notification)]
+    assert len(notifications) == 1
+    assert notifications[0].user_id == target.id
+    assert "reset" in notifications[0].content.lower()
+
+
+async def test_reset_credentials_user_not_found_returns_404(async_client: AsyncClient):
+    """AC3: reset-credentials for nonexistent user → 404 RFC 7807."""
+    admin = _make_user(role=UserRole.ADMIN)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),  # get_current_user
+        _scalar_one_or_none_result(None),   # user not found
+    )
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            RESET_URL.format(user_id=str(uuid4())),
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["status"] == 404
+    assert "user-not-found" in body["type"]
+
+
+async def test_reset_credentials_as_non_admin_returns_403(async_client: AsyncClient):
+    """AC5: Non-admin reset-credentials → 403."""
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(specialist))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            RESET_URL.format(user_id=str(uuid4())),
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+async def test_reset_credentials_requires_csrf(async_client: AsyncClient):
+    """AC3: reset-credentials without CSRF → 403."""
+    admin = _make_user(role=UserRole.ADMIN)
+    override, _, _ = _routed_db(_scalar_one_or_none_result(admin))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            RESET_URL.format(user_id=str(uuid4())),
+            cookies={"access_token": token},  # no csrf_token cookie
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    body = response.json()
+    assert "csrf" in body["detail"].lower()

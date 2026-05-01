@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 class NotificationType(str, enum.Enum):
     NEW_CM_ASSIGNMENT = "new_cm_assignment"
+    CREDENTIAL_RESET = "credential_reset"
 
 
 class Notification(Base, UUIDPrimaryKeyMixin, TimestampMixin):

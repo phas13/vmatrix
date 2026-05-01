@@ -8,6 +8,7 @@ import AdminLayout from './layouts/AdminLayout';
 import LoginPage from './pages/LoginPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 import UsersPage from './pages/admin/UsersPage';
+import SettingsPage from './pages/admin/SettingsPage';
 
 const ROLE_HOMES: Record<string, string> = {
   specialist: '/specialist/dashboard',
@@ -76,7 +77,7 @@ export const router = createBrowserRouter([
     element: <AdminLayout />,
     children: [
       { path: 'users', element: <UsersPage /> },
-      { path: 'settings', element: <PlaceholderPage title="Admin — Settings" /> },
+      { path: 'settings', element: <SettingsPage /> },
     ],
   },
 ]);

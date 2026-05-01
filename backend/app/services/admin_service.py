@@ -1,14 +1,18 @@
 import logging
+import secrets
+from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ProblemHTTPException
 from app.core.security import hash_password
 from app.models.notification import Notification, NotificationType
-from app.models.user import User, UserRole
+from app.models.system_settings import SystemSettings
+from app.models.user import RefreshToken, User, UserRole
+from app.schemas.settings import SystemSettingsUpdate
 from app.schemas.user import UserCreate
 
 logger = logging.getLogger(__name__)
@@ -223,3 +227,78 @@ async def list_users(
     users = [row[0] for row in rows]
     total = rows[0][1]
     return users, total
+
+
+async def get_settings(db: AsyncSession) -> SystemSettings:
+    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    row = result.scalar_one_or_none()
+    if row is None:
+        row = SystemSettings(id=1, promotion_threshold=90, default_competency_domain="DevOps")
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+    return row
+
+
+async def update_settings(
+    body: SystemSettingsUpdate,
+    db: AsyncSession,
+    *,
+    actor_id: UUID,
+    instance: str,
+) -> SystemSettings:
+    row = await get_settings(db)
+    if body.promotion_threshold is not None:
+        row.promotion_threshold = body.promotion_threshold
+    if body.default_competency_domain is not None:
+        row.default_competency_domain = body.default_competency_domain
+    await db.commit()
+    await db.refresh(row)
+    logger.info("admin settings updated actor_id=%s", actor_id)
+    return row
+
+
+async def reset_user_credentials(
+    user_id: UUID,
+    db: AsyncSession,
+    *,
+    actor_id: UUID,
+    instance: str,
+) -> str:
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise ProblemHTTPException(
+            status_code=404,
+            detail={
+                "type": "https://vmatrix.app/errors/user-not-found",
+                "title": "User not found",
+                "status": 404,
+                "detail": f"User {user_id} does not exist",
+                "instance": instance,
+            },
+        )
+
+    temp_password = secrets.token_urlsafe(12)
+    user.hashed_password = hash_password(temp_password)
+
+    await db.execute(
+        sa_update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+
+    notification = Notification(
+        user_id=user_id,
+        type=NotificationType.CREDENTIAL_RESET,
+        content="Your credentials have been reset by an administrator — please log in with your new temporary password",
+    )
+    db.add(notification)
+
+    await db.commit()
+    logger.info(
+        "admin credential reset actor_id=%s target_user_id=%s",
+        actor_id,
+        user_id,
+    )
+    return temp_password

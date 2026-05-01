@@ -54,3 +54,38 @@ export async function createUser(payload: CreateUserPayload): Promise<User> {
   const response = await apiClient.post<User>('/admin/users', body);
   return response.data;
 }
+
+export interface SystemSettings {
+  promotionThreshold: number;
+  defaultCompetencyDomain: string;
+}
+
+export interface UpdateSettingsPayload {
+  promotionThreshold?: number;
+  defaultCompetencyDomain?: string;
+}
+
+export interface CredentialResetResult {
+  temporaryPassword: string;
+  message: string;
+}
+
+export async function getSettings(): Promise<SystemSettings> {
+  const response = await apiClient.get<SystemSettings>('/admin/settings');
+  return response.data;
+}
+
+export async function updateSettings(payload: UpdateSettingsPayload): Promise<SystemSettings> {
+  const body: Record<string, unknown> = {};
+  if (payload.promotionThreshold !== undefined) body.promotion_threshold = payload.promotionThreshold;
+  if (payload.defaultCompetencyDomain !== undefined) body.default_competency_domain = payload.defaultCompetencyDomain;
+  const response = await apiClient.patch<SystemSettings>('/admin/settings', body);
+  return response.data;
+}
+
+export async function resetUserCredentials(userId: string): Promise<CredentialResetResult> {
+  const response = await apiClient.post<CredentialResetResult>(
+    `/admin/users/${userId}/actions/reset-credentials`,
+  );
+  return response.data;
+}

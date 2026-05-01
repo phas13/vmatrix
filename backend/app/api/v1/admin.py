@@ -10,6 +10,7 @@ from app.core.dependencies import (
 )
 from app.models.user import User, UserRole
 from app.schemas.pagination import PaginatedResponse
+from app.schemas.settings import CredentialResetResponse, SystemSettingsRead, SystemSettingsUpdate
 from app.schemas.user import UserCreate, UserRead, UserUpdate
 from app.services import admin_service
 
@@ -76,3 +77,50 @@ async def update_user(
         instance=str(request.url.path),
     )
     return user
+
+
+@router.get(
+    "/settings",
+    response_model=SystemSettingsRead,
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
+)
+async def get_settings(
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await admin_service.get_settings(db)
+
+
+@router.patch(
+    "/settings",
+    response_model=SystemSettingsRead,
+    dependencies=[Depends(require_csrf)],
+)
+async def update_settings(
+    body: SystemSettingsUpdate,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await admin_service.update_settings(
+        body, db, actor_id=current_user.id, instance=str(request.url.path)
+    )
+
+
+@router.post(
+    "/users/{user_id}/actions/reset-credentials",
+    response_model=CredentialResetResponse,
+    dependencies=[Depends(require_csrf)],
+)
+async def reset_user_credentials(
+    user_id: UUID,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db_session),
+):
+    temp_password = await admin_service.reset_user_credentials(
+        user_id, db, actor_id=current_user.id, instance=str(request.url.path)
+    )
+    return CredentialResetResponse(
+        temporary_password=temp_password,
+        message="Credentials reset successfully",
+    )

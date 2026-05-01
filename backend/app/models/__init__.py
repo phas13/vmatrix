@@ -1,4 +1,5 @@
 from app.models.notification import Notification, NotificationType
+from app.models.system_settings import SystemSettings
 from app.models.user import RefreshToken, SpecialistLevel, User, UserRole
 
-__all__ = ["User", "UserRole", "RefreshToken", "SpecialistLevel", "Notification", "NotificationType"]
+__all__ = ["User", "UserRole", "RefreshToken", "SpecialistLevel", "Notification", "NotificationType", "SystemSettings"]
