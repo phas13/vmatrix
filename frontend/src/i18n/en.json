@@ -79,5 +79,23 @@
       "saveSuccess": "Settings saved",
       "saveError": "Failed to save settings"
     }
+  },
+  "matrix": {
+    "title": "Competency Matrix",
+    "generating": "Generating your competency matrix — this may take a moment...",
+    "loading": "Loading your competency matrix...",
+    "generateError": "Matrix generation is temporarily unavailable. Please try again.",
+    "retry": "Try again",
+    "empty": "No competency categories found.",
+    "ariaLabel": "Competency Matrix",
+    "itemCount_one": "{{count}} item",
+    "itemCount_other": "{{count}} items",
+    "categoryItems": "Items in {{name}}",
+    "domainLabel": "Domain: {{domain}}",
+    "status": {
+      "PENDING_REVIEW": "Awaiting your review",
+      "PENDING_APPROVAL": "Submitted — awaiting CM approval",
+      "APPROVED": "Approved"
+    }
   }
 }

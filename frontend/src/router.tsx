@@ -9,6 +9,7 @@ import LoginPage from './pages/LoginPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 import UsersPage from './pages/admin/UsersPage';
 import SettingsPage from './pages/admin/SettingsPage';
+import MatrixPage from './pages/specialist/MatrixPage';
 
 const ROLE_HOMES: Record<string, string> = {
   specialist: '/specialist/dashboard',
@@ -51,7 +52,7 @@ export const router = createBrowserRouter([
     element: <SpecialistLayout />,
     children: [
       { path: 'dashboard', element: <PlaceholderPage title="Specialist Dashboard" /> },
-      { path: 'matrix', element: <PlaceholderPage title="Competency Matrix" /> },
+      { path: 'matrix', element: <MatrixPage /> },
       { path: 'history', element: <PlaceholderPage title="Assessment History" /> },
     ],
   },
