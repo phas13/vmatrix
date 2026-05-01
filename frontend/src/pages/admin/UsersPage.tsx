@@ -226,7 +226,9 @@ function UserList({ activeCMs }: { activeCMs: User[] }) {
     },
     onError: (error: AxiosError<ApiError>) => {
       const detail = error.response?.data?.detail;
-      setReassignError(typeof detail === 'string' && detail ? detail : t('admin.users.reassignError'));
+      // Handle both string and RFC 7807 detail object
+      const message = typeof detail === 'object' && detail !== null ? (detail as any).detail : detail;
+      setReassignError(typeof message === 'string' && message ? message : t('admin.users.reassignError'));
     },
   });
 
@@ -294,10 +296,16 @@ function UserList({ activeCMs }: { activeCMs: User[] }) {
                           {cm.fullName}
                         </MenuItem>
                       ))}
+                      {/* Fix: ensure current CM is shown even if inactive or role changed */}
+                      {u.cmId && !activeCMs.some((c) => c.id === u.cmId) && (
+                        <MenuItem value={u.cmId} disabled>
+                          {t('admin.users.unknownCm')} ({u.cmId.slice(0, 8)})
+                        </MenuItem>
+                      )}
                     </Select>
                   </FormControl>
                 ) : (
-                  '—'
+                  t('admin.users.notApplicable')
                 )}
               </TableCell>
             </TableRow>

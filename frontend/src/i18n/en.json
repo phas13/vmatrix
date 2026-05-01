@@ -45,6 +45,8 @@
         "cmAssignment": "CM Assignment"
       },
       "cmUnassigned": "— Unassigned",
+      "unknownCm": "Unknown CM",
+      "notApplicable": "n/a",
       "reassignError": "Failed to update CM assignment",
       "roles": {
         "specialist": "Specialist",

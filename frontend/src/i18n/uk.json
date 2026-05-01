@@ -45,6 +45,8 @@
         "cmAssignment": "Призначений КМ"
       },
       "cmUnassigned": "— Не призначено",
+      "unknownCm": "Невідомий КМ",
+      "notApplicable": "н/д",
       "reassignError": "Не вдалося оновити призначення КМ",
       "roles": {
         "specialist": "Спеціаліст",

@@ -140,6 +140,10 @@ async def update_specialist_cm(
             },
         )
 
+    # Optimization: if CM hasn't changed, return early without commit or notification
+    if user.cm_id == cm_id:
+        return user
+
     if cm_id is not None and cm_id == user_id:
         raise ProblemHTTPException(
             status_code=422,
@@ -168,7 +172,12 @@ async def update_specialist_cm(
         )
         db.add(notification)
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise _invalid_cm(instance)
+
     await db.refresh(user)
     logger.info(
         "admin cm reassignment actor_id=%s specialist_id=%s new_cm_id=%s",
