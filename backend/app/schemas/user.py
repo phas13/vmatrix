@@ -45,10 +45,11 @@ class UserCreate(BaseModel):
             if self.specialist_level is None:
                 raise ValueError("specialist_level is required when role is SPECIALIST")
         else:
+            # ADMIN, CM, HR cannot have specialist-specific fields
             if self.specialist_level is not None:
-                raise ValueError("specialist_level is only allowed when role is SPECIALIST")
+                raise ValueError(f"specialist_level is not allowed for role {self.role.value}")
             if self.cm_id is not None:
-                raise ValueError("cm_id is only allowed when role is SPECIALIST")
+                raise ValueError(f"cm_id is not allowed for role {self.role.value}")
         return self
 
 

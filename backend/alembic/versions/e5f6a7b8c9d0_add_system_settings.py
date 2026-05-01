@@ -26,7 +26,7 @@ def upgrade() -> None:
     )
     op.execute(
         "INSERT INTO system_settings (id, promotion_threshold, default_competency_domain, created_at, updated_at) "
-        "VALUES (1, 90, 'DevOps', now(), now())"
+        "VALUES (1, 90, 'DevOps', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
     )
 
 

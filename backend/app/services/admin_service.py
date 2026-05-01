@@ -92,11 +92,8 @@ async def create_user(
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
-        constraint_name = getattr(getattr(exc.orig, "diag", None), "constraint_name", "") or ""
-        exc_text = str(exc.orig)
-        if constraint_name in {"uq_users_email", "uq_users_email_lower"} or (
-            "uq_users_email" in exc_text or "uq_users_email_lower" in exc_text
-        ):
+        exc_text = str(exc.orig).lower()
+        if "uq_users_email" in exc_text or "users_email_key" in exc_text:
             raise _email_conflict(instance)
         raise _constraint_violation(instance)
 
@@ -118,7 +115,10 @@ async def update_specialist_cm(
     actor_id: UUID,
     instance: str,
 ) -> User:
-    result = await db.execute(select(User).where(User.id == user_id))
+    # Use select...for_update on the target user to prevent concurrent updates
+    result = await db.execute(
+        select(User).where(User.id == user_id).with_for_update()
+    )
     user = result.scalar_one_or_none()
     if user is None:
         raise ProblemHTTPException(
@@ -144,7 +144,7 @@ async def update_specialist_cm(
             },
         )
 
-    # Optimization: if CM hasn't changed, return early without commit or notification
+    # Optimization: if CM hasn't changed, return early
     if user.cm_id == cm_id:
         return user
 
@@ -161,9 +161,16 @@ async def update_specialist_cm(
         )
 
     if cm_id is not None:
-        cm_result = await db.execute(select(User).where(User.id == cm_id))
+        # Validate new CM status atomically
+        cm_result = await db.execute(
+            select(User).where(
+                User.id == cm_id,
+                User.role == UserRole.CM,
+                User.is_active == True
+            )
+        )
         cm_user = cm_result.scalar_one_or_none()
-        if cm_user is None or cm_user.role != UserRole.CM or not cm_user.is_active:
+        if cm_user is None:
             raise _invalid_cm(instance)
 
     user.cm_id = cm_id
@@ -233,10 +240,17 @@ async def get_settings(db: AsyncSession) -> SystemSettings:
     result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
     row = result.scalar_one_or_none()
     if row is None:
+        # Prevent race condition by using a try-except block on the singleton insert
         row = SystemSettings(id=1, promotion_threshold=90, default_competency_domain="DevOps")
         db.add(row)
-        await db.commit()
-        await db.refresh(row)
+        try:
+            await db.commit()
+            await db.refresh(row)
+        except IntegrityError:
+            await db.rollback()
+            # If someone else inserted it, fetch it
+            result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+            row = result.scalar_one()
     return row
 
 
