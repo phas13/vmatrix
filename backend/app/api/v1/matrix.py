@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db_session, require_csrf, require_role
 from app.models.user import User, UserRole
-from app.schemas.matrix import MatrixRead, SubItemFlagRequest, SubItemRead
+from app.schemas.matrix import MatrixApproveRequest, MatrixRead, SubItemFlagRequest, SubItemRead
 from app.services import matrix_service
 
 router = APIRouter()
@@ -105,6 +105,27 @@ async def submit_matrix(
 ):
     return await matrix_service.submit_for_review(
         specialist_id,
+        db,
+        current_user=current_user,
+        instance=str(request.url.path),
+    )
+
+
+@router.post(
+    "/{specialist_id}/actions/approve",
+    response_model=MatrixRead,
+    dependencies=[Depends(require_csrf)],
+)
+async def approve_matrix(
+    specialist_id: UUID,
+    body: MatrixApproveRequest,
+    request: Request,
+    current_user: User = Depends(require_role(UserRole.CM, UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db_session),
+):
+    return await matrix_service.approve_matrix(
+        specialist_id,
+        body,
         db,
         current_user=current_user,
         instance=str(request.url.path),

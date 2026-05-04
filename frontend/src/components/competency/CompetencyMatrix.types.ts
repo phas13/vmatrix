@@ -25,6 +25,9 @@ export interface MatrixData {
   createdAt: string
   updatedAt: string
   categories: CategoryData[]
+  approvedById: string | null
+  approvedAt: string | null
+  cmChanges: Record<string, unknown> | null
 }
 
 export type CompetencyMatrixVariant = 'specialist' | 'cm-review'
@@ -32,7 +35,13 @@ export type CompetencyMatrixVariant = 'specialist' | 'cm-review'
 export interface CompetencyMatrixProps {
   categories: CategoryData[]
   variant: CompetencyMatrixVariant
+  // specialist variant
   onFlag?: (subItemId: string, note: string) => void
   onUnflag?: (subItemId: string) => void
   disabled?: boolean
+  // cm-review variant
+  onEditSubItem?: (subItemId: string, name: string, description: string) => void
+  onRemoveSubItem?: (subItemId: string) => void
+  localEdits?: Record<string, { name: string; description: string }>
+  localRemovals?: string[]
 }

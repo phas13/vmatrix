@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -18,6 +19,7 @@ from app.models.system_settings import SystemSettings
 from app.models.user import User, UserRole
 from app.providers.base import MatrixGenerationContext
 from app.providers.factory import get_llm_provider
+from app.schemas.matrix import MatrixApproveRequest
 from app.services.prompt_builder import build_matrix_generation_prompt
 
 logger = logging.getLogger(__name__)
@@ -423,3 +425,106 @@ async def submit_for_review(
         )
     )
     return eager.scalar_one()
+
+
+def _matrix_not_pending_approval(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=409,
+        detail={
+            "type": "https://vmatrix.app/errors/matrix-not-pending-approval",
+            "title": "Matrix not pending approval",
+            "status": 409,
+            "detail": "Matrix must be in PENDING_APPROVAL status to be approved",
+            "instance": instance,
+        },
+    )
+
+
+async def approve_matrix(
+    specialist_id: UUID,
+    request: MatrixApproveRequest,
+    db: AsyncSession,
+    *,
+    current_user: User,
+    instance: str,
+) -> CompetencyMatrix:
+    if current_user.role == UserRole.CM:
+        owner_result = await db.execute(select(User).where(User.id == specialist_id))
+        owner = owner_result.scalar_one_or_none()
+        if owner is None or owner.cm_id != current_user.id:
+            raise _matrix_not_found(instance)
+
+    result = await db.execute(
+        select(CompetencyMatrix)
+        .where(CompetencyMatrix.specialist_id == specialist_id)
+        .options(
+            selectinload(CompetencyMatrix.categories).selectinload(CompetencyCategory.sub_items)
+        )
+        .with_for_update()
+    )
+    matrix = result.scalar_one_or_none()
+    if matrix is None:
+        raise _matrix_not_found(instance)
+    if matrix.status != MatrixStatus.PENDING_APPROVAL:
+        raise _matrix_not_pending_approval(instance)
+
+    sub_item_map: dict[UUID, CompetencySubItem] = {
+        si.id: si
+        for cat in matrix.categories
+        for si in cat.sub_items
+    }
+    valid_ids = set(sub_item_map.keys())
+
+    for edit in request.sub_item_edits:
+        if edit.id not in valid_ids:
+            raise _sub_item_not_found(instance)
+    for removal_id in request.sub_items_to_remove:
+        if removal_id not in valid_ids:
+            raise _sub_item_not_found(instance)
+
+    applied_edits = []
+    for edit in request.sub_item_edits:
+        si = sub_item_map[edit.id]
+        if si.name != edit.name or si.description != edit.description:
+            applied_edits.append({
+                "id": str(edit.id),
+                "name_before": si.name,
+                "name_after": edit.name[:255],
+                "description_before": si.description,
+                "description_after": edit.description[:1000],
+            })
+            si.name = edit.name[:255]
+            si.description = edit.description[:1000]
+
+    applied_removals = []
+    for removal_id in request.sub_items_to_remove:
+        si = sub_item_map[removal_id]
+        applied_removals.append({"id": str(removal_id), "name": si.name})
+        await db.delete(si)
+
+    matrix.status = MatrixStatus.APPROVED
+    matrix.approved_by_id = current_user.id
+    matrix.approved_at = datetime.now(timezone.utc)
+    matrix.cm_changes = {
+        "edits": applied_edits,
+        "removals": applied_removals,
+    }
+
+    await _load_specialist(specialist_id, db, instance)
+    notification = Notification(
+        user_id=specialist_id,
+        type=NotificationType.MATRIX_APPROVED,
+        content="Your competency matrix has been approved — you can start assessments",
+    )
+    db.add(notification)
+
+    await db.commit()
+
+    approved_matrix = await db.execute(
+        select(CompetencyMatrix)
+        .where(CompetencyMatrix.id == matrix.id)
+        .options(
+            selectinload(CompetencyMatrix.categories).selectinload(CompetencyCategory.sub_items)
+        )
+    )
+    return approved_matrix.scalar_one()

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import enum
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Enum as SAEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -32,6 +33,13 @@ class CompetencyMatrix(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=False,
         default=MatrixStatus.PENDING_REVIEW,
     )
+    approved_by_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cm_changes: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     categories: Mapped[list["CompetencyCategory"]] = relationship(
         back_populates="matrix", order_by="CompetencyCategory.order", cascade="all, delete-orphan"
     )

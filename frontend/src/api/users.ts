@@ -12,3 +12,7 @@ export async function getUnreadNotifications(): Promise<Notification[]> {
   const response = await apiClient.get<Notification[]>('/users/me/notifications/unread');
   return response.data;
 }
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  await apiClient.post(`/users/me/notifications/${notificationId}/read`);
+}

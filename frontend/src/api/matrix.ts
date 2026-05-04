@@ -41,3 +41,25 @@ export async function submitMatrix(specialistId: string): Promise<MatrixData> {
   )
   return response.data
 }
+
+export interface SubItemEditPayload {
+  id: string
+  name: string
+  description: string
+}
+
+export interface MatrixApprovePayload {
+  sub_item_edits: SubItemEditPayload[]
+  sub_items_to_remove: string[]
+}
+
+export async function approveMatrix(
+  specialistId: string,
+  payload: MatrixApprovePayload,
+): Promise<MatrixData> {
+  const response = await apiClient.post<MatrixData>(
+    `/matrix/${specialistId}/actions/approve`,
+    payload,
+  )
+  return response.data
+}

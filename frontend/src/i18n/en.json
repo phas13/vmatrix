@@ -22,7 +22,8 @@
     "next": "Next",
     "genericError": "Something went wrong. Please try again.",
     "cancel": "Cancel",
-    "close": "Close"
+    "close": "Close",
+    "loading": "Loading..."
   },
   "admin": {
     "users": {
@@ -107,6 +108,28 @@
       "PENDING_REVIEW": "Awaiting your review",
       "PENDING_APPROVAL": "Submitted — awaiting CM approval",
       "APPROVED": "Approved"
+    },
+    "editSubItemDialogTitle": "Edit item",
+    "subItemNameLabel": "Name",
+    "subItemDescriptionLabel": "Description",
+    "saveEdit": "Save",
+    "edited": "(edited)",
+    "editSubItemAriaLabel": "Edit this item",
+    "removeSubItemAriaLabel": "Remove this item"
+  },
+  "cm": {
+    "dashboard": {
+      "title": "CM Dashboard",
+      "noSpecialists": "No specialists assigned yet",
+      "reviewMatrix": "Review Matrix"
+    },
+    "matrixReview": {
+      "title": "Matrix Review",
+      "approve": "Approve",
+      "approving": "Approving...",
+      "approveError": "Failed to approve matrix. Please try again.",
+      "alreadyApproved": "This matrix has already been approved.",
+      "discardChanges": "Discard changes"
     }
   }
 }

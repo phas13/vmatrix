@@ -121,6 +121,9 @@ def _make_matrix(specialist: MagicMock, status: MatrixStatus = MatrixStatus.PEND
     m.created_at = _now()
     m.updated_at = _now()
     m.categories = [_make_category(m.id)]
+    m.approved_by_id = None
+    m.approved_at = None
+    m.cm_changes = None
     return m
 
 
@@ -1217,3 +1220,402 @@ async def test_submit_matrix_no_cm_assigned_skips_notification(async_client: Asy
     assert response.status_code == 200
     notifications = [obj for obj in added if isinstance(obj, Notification)]
     assert len(notifications) == 0
+
+
+# ─── Helpers for Story 3.3 tests ──────────────────────────────────────────────
+
+def _make_matrix_pa(specialist: MagicMock) -> MagicMock:
+    """Matrix in PENDING_APPROVAL status with approval audit fields."""
+    m = _make_matrix(specialist, status=MatrixStatus.PENDING_APPROVAL)
+    m.approved_by_id = None
+    m.approved_at = None
+    m.cm_changes = None
+    return m
+
+
+def _make_approved_matrix(specialist: MagicMock, cm_id) -> MagicMock:
+    """Matrix in APPROVED status."""
+    m = _make_matrix(specialist, status=MatrixStatus.APPROVED)
+    m.approved_by_id = cm_id
+    m.approved_at = _now()
+    m.cm_changes = {"edits": [], "removals": []}
+    return m
+
+
+# ─── POST /matrix/{specialist_id}/actions/approve ────────────────────────────
+
+@pytest.mark.asyncio
+async def test_approve_matrix_returns_200_with_approved_status(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix_pa(specialist)
+    matrix_approved = _make_approved_matrix(specialist, cm.id)
+
+    # DB call order for CM:
+    # 1. get_current_user (CM)
+    # 2. CM ownership check (specialist lookup)
+    # 3. matrix with selectinload + for_update
+    # 4. _load_specialist (for notification)
+    # 5. eager reload after commit
+    override, _, added = _routed_db(
+        _scalar_one_or_none_result(cm),           # get_current_user
+        _scalar_one_or_none_result(specialist),   # CM ownership check
+        _scalar_one_or_none_result(matrix),       # matrix fetch
+        _scalar_one_or_none_result(specialist),   # _load_specialist
+        _scalar_one_result(matrix_approved),      # eager reload
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={"sub_item_edits": [], "sub_items_to_remove": []},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "APPROVED"
+    notifications = [obj for obj in added if isinstance(obj, Notification)]
+    assert len(notifications) == 1
+    assert notifications[0].user_id == specialist.id
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_with_edits_updates_sub_items(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix_pa(specialist)
+    sub_item = matrix.categories[0].sub_items[0]
+    sub_item_id = sub_item.id
+    matrix_approved = _make_approved_matrix(specialist, cm.id)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_result(matrix_approved),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={
+                "sub_item_edits": [
+                    {"id": str(sub_item_id), "name": "Updated name", "description": "Updated desc"}
+                ],
+                "sub_items_to_remove": [],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_with_removals_deletes_sub_items(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix_pa(specialist)
+    sub_item = matrix.categories[0].sub_items[0]
+    sub_item_id = sub_item.id
+    matrix_approved = _make_approved_matrix(specialist, cm.id)
+
+    override, mock_db, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_result(matrix_approved),
+    )
+    mock_db.delete = AsyncMock()
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={
+                "sub_item_edits": [],
+                "sub_items_to_remove": [str(sub_item_id)],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    mock_db.delete.assert_awaited_once_with(sub_item)
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_records_cm_changes(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix_pa(specialist)
+    sub_item = matrix.categories[0].sub_items[0]
+    sub_item_id = sub_item.id
+    # Add a second sub-item to remove
+    sub_item2 = _make_sub_item(matrix.categories[0].id)
+    matrix.categories[0].sub_items.append(sub_item2)
+    matrix_approved = _make_approved_matrix(specialist, cm.id)
+
+    override, mock_db, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_result(matrix_approved),
+    )
+    mock_db.delete = AsyncMock()
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={
+                "sub_item_edits": [
+                    {"id": str(sub_item_id), "name": "New name", "description": "New desc"}
+                ],
+                "sub_items_to_remove": [str(sub_item2.id)],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    # Verify cm_changes was set on the matrix object
+    assert len(matrix.cm_changes["edits"]) == 1
+    assert len(matrix.cm_changes["removals"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_without_csrf_returns_403(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+
+    override, _, _ = _routed_db(_scalar_one_or_none_result(cm))
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={"sub_item_edits": [], "sub_items_to_remove": []},
+            cookies={"access_token": token},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_as_specialist_returns_403(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+
+    override, _, _ = _routed_db(_scalar_one_or_none_result(specialist))
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={"sub_item_edits": [], "sub_items_to_remove": []},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_cm_not_owner_returns_404(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    other_cm_id = uuid4()
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=other_cm_id)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),  # specialist.cm_id != cm.id
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={"sub_item_edits": [], "sub_items_to_remove": []},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert "matrix-not-found" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_pending_review_returns_409(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix(specialist, status=MatrixStatus.PENDING_REVIEW)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={"sub_item_edits": [], "sub_items_to_remove": []},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert "matrix-not-pending-approval" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_already_approved_returns_409(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_approved_matrix(specialist, cm.id)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={"sub_item_edits": [], "sub_items_to_remove": []},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert "matrix-not-pending-approval" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_foreign_sub_item_edit_returns_404(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix_pa(specialist)
+    foreign_id = uuid4()
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={
+                "sub_item_edits": [
+                    {"id": str(foreign_id), "name": "X", "description": "Y"}
+                ],
+                "sub_items_to_remove": [],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert "sub-item-not-found" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_foreign_sub_item_removal_returns_404(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix_pa(specialist)
+    foreign_id = uuid4()
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={
+                "sub_item_edits": [],
+                "sub_items_to_remove": [str(foreign_id)],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert "sub-item-not-found" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_not_found_returns_404(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(None),  # matrix not found
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={"sub_item_edits": [], "sub_items_to_remove": []},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert "matrix-not-found" in response.json()["type"]

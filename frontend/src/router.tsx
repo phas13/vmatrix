@@ -9,7 +9,9 @@ import LoginPage from './pages/LoginPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 import UsersPage from './pages/admin/UsersPage';
 import SettingsPage from './pages/admin/SettingsPage';
-import MatrixPage from './pages/specialist/MatrixPage';
+import MatrixPage from './pages/specialist/MatrixPage'
+import CMDashboardPage from './pages/cm/DashboardPage'
+import MatrixReviewPage from './pages/cm/MatrixReviewPage';
 
 const ROLE_HOMES: Record<string, string> = {
   specialist: '/specialist/dashboard',
@@ -61,7 +63,8 @@ export const router = createBrowserRouter([
     loader: requireRole('cm'),
     element: <CMLayout />,
     children: [
-      { path: 'dashboard', element: <PlaceholderPage title="CM Dashboard" /> },
+      { path: 'dashboard', element: <CMDashboardPage /> },
+      { path: 'matrix/:specialistId/review', element: <MatrixReviewPage /> },
     ],
   },
   {

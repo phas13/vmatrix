@@ -170,7 +170,7 @@ async def update_specialist_cm(
             select(User).where(
                 User.id == cm_id,
                 User.role == UserRole.CM,
-                User.is_active == True
+                User.is_active.is_(True)
             )
         )
         cm_user = cm_result.scalar_one_or_none()

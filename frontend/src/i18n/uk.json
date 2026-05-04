@@ -22,7 +22,8 @@
     "next": "Наступна",
     "genericError": "Щось пішло не так. Спробуйте ще раз.",
     "cancel": "Скасувати",
-    "close": "Закрити"
+    "close": "Закрити",
+    "loading": "Завантаження..."
   },
   "admin": {
     "users": {
@@ -109,6 +110,28 @@
       "PENDING_REVIEW": "Очікує вашого перегляду",
       "PENDING_APPROVAL": "Подано — очікує затвердження КМ",
       "APPROVED": "Затверджено"
+    },
+    "editSubItemDialogTitle": "Редагувати елемент",
+    "subItemNameLabel": "Назва",
+    "subItemDescriptionLabel": "Опис",
+    "saveEdit": "Зберегти",
+    "edited": "(змінено)",
+    "editSubItemAriaLabel": "Редагувати цей елемент",
+    "removeSubItemAriaLabel": "Видалити цей елемент"
+  },
+  "cm": {
+    "dashboard": {
+      "title": "Дашборд КМ",
+      "noSpecialists": "Спеціалісти ще не призначені",
+      "reviewMatrix": "Переглянути матрицю"
+    },
+    "matrixReview": {
+      "title": "Перегляд матриці",
+      "approve": "Затвердити",
+      "approving": "Затвердження...",
+      "approveError": "Не вдалося затвердити матрицю. Спробуйте ще раз.",
+      "alreadyApproved": "Ця матриця вже затверджена.",
+      "discardChanges": "Скасувати зміни"
     }
   }
 }

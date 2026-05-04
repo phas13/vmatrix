@@ -18,6 +18,7 @@ class NotificationType(str, enum.Enum):
     NEW_CM_ASSIGNMENT = "new_cm_assignment"
     CREDENTIAL_RESET = "credential_reset"
     MATRIX_PENDING_REVIEW = "matrix_pending_review"
+    MATRIX_APPROVED = "matrix_approved"
 
 
 class Notification(Base, UUIDPrimaryKeyMixin, TimestampMixin):
