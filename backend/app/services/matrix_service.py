@@ -13,6 +13,7 @@ from app.core.exceptions import LLMUnavailableError, ProblemHTTPException
 from app.core.security import encrypt_field
 from app.models.llm_call_log import LLMCallLog, LLMOperation
 from app.models.matrix import CompetencyCategory, CompetencyMatrix, CompetencySubItem, MatrixStatus
+from app.models.notification import Notification, NotificationType
 from app.models.system_settings import SystemSettings
 from app.models.user import User, UserRole
 from app.providers.base import MatrixGenerationContext
@@ -268,3 +269,148 @@ async def get_matrix(
     if matrix is None:
         raise _matrix_not_found(instance)
     return matrix
+
+
+def _sub_item_not_found(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=404,
+        detail={
+            "type": "https://vmatrix.app/errors/sub-item-not-found",
+            "title": "Sub-item not found",
+            "status": 404,
+            "detail": "Competency sub-item not found or does not belong to this specialist's matrix",
+            "instance": instance,
+        },
+    )
+
+
+def _matrix_not_editable(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=409,
+        detail={
+            "type": "https://vmatrix.app/errors/matrix-not-editable",
+            "title": "Matrix not editable",
+            "status": 409,
+            "detail": "Matrix cannot be modified after submission",
+            "instance": instance,
+        },
+    )
+
+
+def _matrix_already_submitted(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=409,
+        detail={
+            "type": "https://vmatrix.app/errors/matrix-already-submitted",
+            "title": "Matrix already submitted",
+            "status": 409,
+            "detail": "Matrix has already been submitted for review",
+            "instance": instance,
+        },
+    )
+
+
+async def flag_sub_item(
+    specialist_id: UUID,
+    sub_item_id: UUID,
+    note: str | None,
+    db: AsyncSession,
+    *,
+    current_user: User,
+    instance: str,
+) -> CompetencySubItem:
+    await verify_specialist_ownership(specialist_id, current_user)
+
+    result = await db.execute(
+        select(CompetencySubItem, CompetencyMatrix.status)
+        .join(CompetencyCategory, CompetencySubItem.category_id == CompetencyCategory.id)
+        .join(CompetencyMatrix, CompetencyCategory.matrix_id == CompetencyMatrix.id)
+        .where(CompetencySubItem.id == sub_item_id)
+        .where(CompetencyMatrix.specialist_id == specialist_id)
+    )
+    row = result.first()
+    if row is None:
+        raise _sub_item_not_found(instance)
+
+    sub_item, matrix_status = row
+    if matrix_status != MatrixStatus.PENDING_REVIEW:
+        raise _matrix_not_editable(instance)
+
+    sub_item.is_flagged = True
+    sub_item.flag_note = note
+    await db.commit()
+    await db.refresh(sub_item)
+    return sub_item
+
+
+async def unflag_sub_item(
+    specialist_id: UUID,
+    sub_item_id: UUID,
+    db: AsyncSession,
+    *,
+    current_user: User,
+    instance: str,
+) -> CompetencySubItem:
+    await verify_specialist_ownership(specialist_id, current_user)
+
+    result = await db.execute(
+        select(CompetencySubItem, CompetencyMatrix.status)
+        .join(CompetencyCategory, CompetencySubItem.category_id == CompetencyCategory.id)
+        .join(CompetencyMatrix, CompetencyCategory.matrix_id == CompetencyMatrix.id)
+        .where(CompetencySubItem.id == sub_item_id)
+        .where(CompetencyMatrix.specialist_id == specialist_id)
+    )
+    row = result.first()
+    if row is None:
+        raise _sub_item_not_found(instance)
+
+    sub_item, matrix_status = row
+    if matrix_status != MatrixStatus.PENDING_REVIEW:
+        raise _matrix_not_editable(instance)
+
+    sub_item.is_flagged = False
+    sub_item.flag_note = None
+    await db.commit()
+    await db.refresh(sub_item)
+    return sub_item
+
+
+async def submit_for_review(
+    specialist_id: UUID,
+    db: AsyncSession,
+    *,
+    current_user: User,
+    instance: str,
+) -> CompetencyMatrix:
+    await verify_specialist_ownership(specialist_id, current_user)
+
+    result = await db.execute(
+        select(CompetencyMatrix).where(CompetencyMatrix.specialist_id == specialist_id)
+    )
+    matrix = result.scalar_one_or_none()
+    if matrix is None:
+        raise _matrix_not_found(instance)
+    if matrix.status != MatrixStatus.PENDING_REVIEW:
+        raise _matrix_already_submitted(instance)
+
+    matrix.status = MatrixStatus.PENDING_APPROVAL
+
+    specialist = await _load_specialist(specialist_id, db, instance)
+    if specialist.cm_id is not None:
+        notification = Notification(
+            user_id=specialist.cm_id,
+            type=NotificationType.MATRIX_PENDING_REVIEW,
+            content=f"{specialist.full_name}'s competency matrix is ready for your review",
+        )
+        db.add(notification)
+
+    await db.commit()
+
+    eager = await db.execute(
+        select(CompetencyMatrix)
+        .where(CompetencyMatrix.id == matrix.id)
+        .options(
+            selectinload(CompetencyMatrix.categories).selectinload(CompetencyCategory.sub_items)
+        )
+    )
+    return eager.scalar_one()

@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { Alert, Box, Button, Skeleton, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Skeleton, Typography } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { getMatrix, generateMatrix } from '../../api/matrix'
+import { getMatrix, generateMatrix, flagSubItem, unflagSubItem, submitMatrix } from '../../api/matrix'
 import CompetencyMatrix from '../../components/competency/CompetencyMatrix'
 import { useAuth } from '../../hooks/useAuth'
 
@@ -33,6 +33,28 @@ export default function MatrixPage() {
 
   const generateMutation = useMutation({
     mutationFn: () => generateMatrix(specialistId),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['matrix', specialistId], data)
+    },
+  })
+
+  const flagMutation = useMutation({
+    mutationFn: ({ subItemId, note }: { subItemId: string; note: string }) =>
+      flagSubItem(specialistId, subItemId, note),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['matrix', specialistId] })
+    },
+  })
+
+  const unflagMutation = useMutation({
+    mutationFn: (subItemId: string) => unflagSubItem(specialistId, subItemId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['matrix', specialistId] })
+    },
+  })
+
+  const submitMutation = useMutation({
+    mutationFn: () => submitMatrix(specialistId),
     onSuccess: (data) => {
       queryClient.setQueryData(['matrix', specialistId], data)
     },
@@ -123,12 +145,64 @@ export default function MatrixPage() {
       <Typography variant="h5" sx={{ mb: 1 }}>{t('matrix.title')}</Typography>
       {displayMatrix && (
         <>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            {t('matrix.domainLabel', { domain: displayMatrix.domain })}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+            <Typography variant="body2" color="text.secondary">
+              {t('matrix.domainLabel', { domain: displayMatrix.domain })}
+            </Typography>
+            <Chip
+              label={t(`matrix.status.${displayMatrix.status}`)}
+              size="small"
+              color={
+                displayMatrix.status === 'APPROVED' ? 'success' :
+                displayMatrix.status === 'PENDING_APPROVAL' ? 'warning' : 'default'
+              }
+            />
+          </Box>
+
+          {displayMatrix.status === 'PENDING_REVIEW' && (
+            <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
+              <Button
+                variant="contained"
+                onClick={() => submitMutation.mutate()}
+                disabled={submitMutation.isPending}
+              >
+                {submitMutation.isPending
+                  ? t('matrix.submitting')
+                  : t('matrix.submitForReview')}
+              </Button>
+            </Box>
+          )}
+
+          {displayMatrix.status === 'PENDING_APPROVAL' && (
+            <Box sx={{ mb: 3 }}>
+              <Alert severity="info">{t('matrix.status.PENDING_APPROVAL')}</Alert>
+            </Box>
+          )}
+
+          {submitMutation.isError && (
+            <Box sx={{ mb: 2 }}>
+              <Alert severity="error">{t('matrix.submitError')}</Alert>
+            </Box>
+          )}
+
           <CompetencyMatrix
             categories={displayMatrix.categories}
             variant="specialist"
+            disabled={
+              flagMutation.isPending ||
+              unflagMutation.isPending ||
+              displayMatrix.status !== 'PENDING_REVIEW'
+            }
+            onFlag={
+              displayMatrix.status === 'PENDING_REVIEW'
+                ? (subItemId, note) => flagMutation.mutate({ subItemId, note })
+                : undefined
+            }
+            onUnflag={
+              displayMatrix.status === 'PENDING_REVIEW'
+                ? (subItemId) => unflagMutation.mutate(subItemId)
+                : undefined
+            }
           />
         </>
       )}

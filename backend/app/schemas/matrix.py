@@ -6,6 +6,10 @@ from pydantic import BaseModel, ConfigDict
 from app.models.matrix import MatrixStatus
 
 
+class SubItemFlagRequest(BaseModel):
+    note: str | None = None
+
+
 class SubItemRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

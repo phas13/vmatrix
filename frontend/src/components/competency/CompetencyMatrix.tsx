@@ -1,17 +1,31 @@
 import { useId, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import {
-  Box, Collapse, Divider, List, ListItem, Paper, Typography,
+  Box, Button, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
+  Divider, IconButton, List, ListItem, Paper, TextField, Typography,
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import FlagIcon from '@mui/icons-material/Flag'
+import FlagOutlinedIcon from '@mui/icons-material/FlagOutlined'
 import { useTranslation } from 'react-i18next'
 import type { CompetencyMatrixProps } from './CompetencyMatrix.types'
 
-export default function CompetencyMatrix({ categories, variant: _variant }: CompetencyMatrixProps) {
+export default function CompetencyMatrix({
+  categories,
+  variant,
+  onFlag,
+  onUnflag,
+  disabled,
+}: CompetencyMatrixProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const idPrefix = useId()
+  const [flagDialog, setFlagDialog] = useState<{
+    subItemId: string
+    existingNote: string
+  } | null>(null)
+  const [noteText, setNoteText] = useState('')
 
   const toggle = (id: string) => {
     setExpanded((prev) => {
@@ -96,8 +110,45 @@ export default function CompetencyMatrix({ categories, variant: _variant }: Comp
                           py: 1.5,
                         }}
                       >
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{item.name}</Typography>
-                        <Typography variant="body2" color="text.secondary">{item.description}</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 1 }}>
+                          <Box sx={{ flexGrow: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>{item.name}</Typography>
+                            <Typography variant="body2" color="text.secondary">{item.description}</Typography>
+                          </Box>
+
+                          {variant === 'specialist' && item.isFlagged && onUnflag && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                              <FlagIcon sx={{ color: 'warning.main', fontSize: 18 }} aria-hidden />
+                              {item.flagNote && (
+                                <Typography variant="caption" color="warning.main" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {item.flagNote.length > 60 ? `${item.flagNote.slice(0, 60)}…` : item.flagNote}
+                                </Typography>
+                              )}
+                              <IconButton
+                                size="small"
+                                aria-label={t('matrix.unflagAriaLabel')}
+                                disabled={disabled}
+                                onClick={() => onUnflag(item.id)}
+                              >
+                                <FlagIcon sx={{ color: 'warning.main', fontSize: 18 }} />
+                              </IconButton>
+                            </Box>
+                          )}
+
+                          {variant === 'specialist' && !item.isFlagged && onFlag && (
+                            <IconButton
+                              size="small"
+                              aria-label={t('matrix.flagAriaLabel')}
+                              disabled={disabled}
+                              onClick={() => {
+                                setFlagDialog({ subItemId: item.id, existingNote: '' })
+                                setNoteText('')
+                              }}
+                            >
+                              <FlagOutlinedIcon sx={{ fontSize: 18 }} />
+                            </IconButton>
+                          )}
+                        </Box>
                       </ListItem>
                     ))}
                   </List>
@@ -107,6 +158,37 @@ export default function CompetencyMatrix({ categories, variant: _variant }: Comp
           </Paper>
         )
       })}
+
+      <Dialog open={!!flagDialog} onClose={() => setFlagDialog(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>{t('matrix.flagDialogTitle')}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            multiline
+            rows={3}
+            fullWidth
+            label={t('matrix.flagNoteLabel')}
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            slotProps={{ htmlInput: { maxLength: 500 } }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFlagDialog(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={!noteText.trim() || disabled}
+            onClick={() => {
+              if (flagDialog && onFlag) {
+                onFlag(flagDialog.subItemId, noteText.trim())
+                setFlagDialog(null)
+              }
+            }}
+          >
+            {t('matrix.flagConfirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

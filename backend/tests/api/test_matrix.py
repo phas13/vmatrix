@@ -11,6 +11,7 @@ from app.core.security import create_access_token
 from app.db.session import get_db_session
 from app.models.llm_call_log import LLMCallLog, LLMOperation
 from app.models.matrix import CompetencyMatrix, CompetencyCategory, CompetencySubItem, MatrixStatus
+from app.models.notification import Notification
 from app.models.system_settings import SystemSettings
 from app.models.user import SpecialistLevel, User, UserRole
 from app.providers.base import CategoryDraft, MatrixGenerationContext, SubItemDraft
@@ -772,3 +773,447 @@ async def test_get_matrix_as_hr_returns_403(async_client: AsyncClient):
         app.dependency_overrides.clear()
 
     assert response.status_code == 403
+
+
+# ─── Helpers for Story 3.2 tests ──────────────────────────────────────────────
+
+def _make_sub_item_with_matrix(specialist_id) -> tuple:
+    """Returns (matrix, category, sub_item) all with consistent foreign keys."""
+    matrix = MagicMock(spec=CompetencyMatrix)
+    matrix.id = uuid4()
+    matrix.specialist_id = specialist_id
+    matrix.domain = "DevOps"
+    matrix.status = MatrixStatus.PENDING_REVIEW
+    matrix.created_at = _now()
+    matrix.updated_at = _now()
+    matrix.categories = []
+
+    category = MagicMock(spec=CompetencyCategory)
+    category.id = uuid4()
+    category.matrix_id = matrix.id
+
+    sub_item = MagicMock(spec=CompetencySubItem)
+    sub_item.id = uuid4()
+    sub_item.category_id = category.id
+    sub_item.name = "Pipeline design"
+    sub_item.description = "Knows CI/CD"
+    sub_item.order = 0
+    sub_item.is_flagged = False
+    sub_item.flag_note = None
+    sub_item.created_at = _now()
+    sub_item.updated_at = _now()
+    return matrix, category, sub_item
+
+
+def _first_result(row) -> MagicMock:
+    r = MagicMock()
+    r.first.return_value = row
+    return r
+
+
+# ─── POST /matrix/{specialist_id}/sub-items/{sub_item_id}/actions/flag ────────
+
+@pytest.mark.asyncio
+async def test_flag_sub_item_returns_200_with_is_flagged_true(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    _, _, sub_item = _make_sub_item_with_matrix(specialist.id)
+    sub_item.is_flagged = True
+    sub_item.flag_note = "This item seems outdated"
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),                              # get_current_user
+        _first_result((sub_item, MatrixStatus.PENDING_REVIEW)),              # JOIN query
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/sub-items/{sub_item.id}/actions/flag",
+            json={"note": "This item seems outdated"},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_flagged"] is True
+    assert data["flag_note"] == "This item seems outdated"
+
+
+@pytest.mark.asyncio
+async def test_flag_sub_item_without_csrf_returns_403(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    _, _, sub_item = _make_sub_item_with_matrix(specialist.id)
+
+    override, _, _ = _routed_db(_scalar_one_or_none_result(specialist))
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/sub-items/{sub_item.id}/actions/flag",
+            json={"note": "note"},
+            cookies={"access_token": token},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_flag_sub_item_as_cm_returns_403(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    _, _, sub_item = _make_sub_item_with_matrix(specialist.id)
+
+    override, _, _ = _routed_db(_scalar_one_or_none_result(cm))
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/sub-items/{sub_item.id}/actions/flag",
+            json={"note": "note"},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_flag_sub_item_not_found_returns_404(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    unknown_id = uuid4()
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),   # get_current_user
+        _first_result(None),                       # JOIN returns nothing
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/sub-items/{unknown_id}/actions/flag",
+            json={"note": "note"},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert "sub-item-not-found" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_flag_sub_item_on_pending_approval_matrix_returns_409(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    _, _, sub_item = _make_sub_item_with_matrix(specialist.id)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _first_result((sub_item, MatrixStatus.PENDING_APPROVAL)),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/sub-items/{sub_item.id}/actions/flag",
+            json={"note": "note"},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert "matrix-not-editable" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_flag_sub_item_on_approved_matrix_returns_409(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    _, _, sub_item = _make_sub_item_with_matrix(specialist.id)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _first_result((sub_item, MatrixStatus.APPROVED)),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/sub-items/{sub_item.id}/actions/flag",
+            json={"note": "note"},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert "matrix-not-editable" in response.json()["type"]
+
+
+# ─── POST /matrix/{specialist_id}/sub-items/{sub_item_id}/actions/unflag ──────
+
+@pytest.mark.asyncio
+async def test_unflag_sub_item_returns_200_with_is_flagged_false(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    _, _, sub_item = _make_sub_item_with_matrix(specialist.id)
+    sub_item.is_flagged = False
+    sub_item.flag_note = None
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _first_result((sub_item, MatrixStatus.PENDING_REVIEW)),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/sub-items/{sub_item.id}/actions/unflag",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_flagged"] is False
+    assert data["flag_note"] is None
+
+
+@pytest.mark.asyncio
+async def test_unflag_sub_item_without_csrf_returns_403(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    _, _, sub_item = _make_sub_item_with_matrix(specialist.id)
+
+    override, _, _ = _routed_db(_scalar_one_or_none_result(specialist))
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/sub-items/{sub_item.id}/actions/unflag",
+            cookies={"access_token": token},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_unflag_sub_item_not_found_returns_404(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    unknown_id = uuid4()
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _first_result(None),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/sub-items/{unknown_id}/actions/unflag",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert "sub-item-not-found" in response.json()["type"]
+
+
+# ─── POST /matrix/{specialist_id}/actions/submit ──────────────────────────────
+
+@pytest.mark.asyncio
+async def test_submit_matrix_returns_200_with_pending_approval(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix(specialist, status=MatrixStatus.PENDING_REVIEW)
+    matrix_after = _make_matrix(specialist, status=MatrixStatus.PENDING_APPROVAL)
+
+    override, _, added = _routed_db(
+        _scalar_one_or_none_result(specialist),    # get_current_user
+        _scalar_one_or_none_result(matrix),        # matrix lookup
+        _scalar_one_or_none_result(specialist),    # _load_specialist for notification
+        _scalar_one_result(matrix_after),          # eager reload after commit
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/submit",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "PENDING_APPROVAL"
+    notifications = [obj for obj in added if isinstance(obj, Notification)]
+    assert len(notifications) == 1
+    assert notifications[0].user_id == cm.id
+
+
+@pytest.mark.asyncio
+async def test_submit_matrix_without_csrf_returns_403(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+
+    override, _, _ = _routed_db(_scalar_one_or_none_result(specialist))
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/submit",
+            cookies={"access_token": token},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_submit_matrix_as_cm_returns_403(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST)
+
+    override, _, _ = _routed_db(_scalar_one_or_none_result(cm))
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/submit",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_submit_matrix_already_submitted_returns_409(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    matrix = _make_matrix(specialist, status=MatrixStatus.PENDING_APPROVAL)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/submit",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert "matrix-already-submitted" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_submit_matrix_approved_returns_409(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    matrix = _make_matrix(specialist, status=MatrixStatus.APPROVED)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/submit",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    assert "matrix-already-submitted" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_submit_matrix_not_found_returns_404(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(None),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/submit",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    assert "matrix-not-found" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_submit_matrix_no_cm_assigned_skips_notification(async_client: AsyncClient):
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=None)
+    matrix = _make_matrix(specialist, status=MatrixStatus.PENDING_REVIEW)
+    matrix_after = _make_matrix(specialist, status=MatrixStatus.PENDING_APPROVAL)
+
+    override, _, added = _routed_db(
+        _scalar_one_or_none_result(specialist),    # get_current_user
+        _scalar_one_or_none_result(matrix),        # matrix lookup
+        _scalar_one_or_none_result(specialist),    # _load_specialist
+        _scalar_one_result(matrix_after),          # eager reload
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/submit",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    notifications = [obj for obj in added if isinstance(obj, Notification)]
+    assert len(notifications) == 0

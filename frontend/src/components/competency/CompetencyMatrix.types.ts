@@ -32,5 +32,7 @@ export type CompetencyMatrixVariant = 'specialist' | 'cm-review'
 export interface CompetencyMatrixProps {
   categories: CategoryData[]
   variant: CompetencyMatrixVariant
-  // Story 3.2 will add: onFlag, onUnflag
+  onFlag?: (subItemId: string, note: string) => void
+  onUnflag?: (subItemId: string) => void
+  disabled?: boolean
 }
