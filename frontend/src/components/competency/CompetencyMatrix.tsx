@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import {
   Box, Collapse, Divider, List, ListItem, Paper, Typography,
@@ -11,6 +11,7 @@ import type { CompetencyMatrixProps } from './CompetencyMatrix.types'
 export default function CompetencyMatrix({ categories, variant: _variant }: CompetencyMatrixProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const idPrefix = useId()
 
   const toggle = (id: string) => {
     setExpanded((prev) => {
@@ -39,12 +40,14 @@ export default function CompetencyMatrix({ categories, variant: _variant }: Comp
     <Box component="section" aria-label={t('matrix.ariaLabel')}>
       {categories.map((cat) => {
         const isExpanded = expanded.has(cat.id)
+        const panelId = `${idPrefix}-cat-${cat.id}`
         return (
           <Paper key={cat.id} variant="outlined" sx={{ mb: 1 }}>
             <Box
               role="button"
               tabIndex={0}
               aria-expanded={isExpanded}
+              aria-controls={panelId}
               onClick={() => toggle(cat.id)}
               onKeyDown={(e) => handleKeyDown(e, cat.id)}
               sx={{
@@ -66,30 +69,40 @@ export default function CompetencyMatrix({ categories, variant: _variant }: Comp
               <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
                 {t('matrix.itemCount', { count: cat.subItems.length })}
               </Typography>
-              {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              {isExpanded ? <ExpandLessIcon aria-hidden /> : <ExpandMoreIcon aria-hidden />}
             </Box>
 
             <Collapse in={isExpanded} unmountOnExit>
               <Divider />
-              <List dense role="list" aria-label={t('matrix.categoryItems', { name: cat.name })}>
-                {cat.subItems.map((item, itemIdx) => (
-                  <ListItem
-                    key={item.id}
-                    tabIndex={isExpanded ? 0 : -1}
-                    sx={{
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      pl: 4,
-                      borderBottom: itemIdx < cat.subItems.length - 1 ? '1px solid' : 'none',
-                      borderColor: 'divider',
-                      py: 1.5,
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{item.name}</Typography>
-                    <Typography variant="body2" color="text.secondary">{item.description}</Typography>
-                  </ListItem>
-                ))}
-              </List>
+              <Box id={panelId}>
+                {cat.subItems.length === 0 ? (
+                  <Box sx={{ px: 4, py: 3 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {t('matrix.categoryEmpty')}
+                    </Typography>
+                  </Box>
+                ) : (
+                  <List dense role="list" aria-label={t('matrix.categoryItems', { name: cat.name })}>
+                    {cat.subItems.map((item, itemIdx) => (
+                      <ListItem
+                        key={item.id}
+                        tabIndex={isExpanded ? 0 : -1}
+                        sx={{
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          pl: 4,
+                          borderBottom: itemIdx < cat.subItems.length - 1 ? '1px solid' : 'none',
+                          borderColor: 'divider',
+                          py: 1.5,
+                        }}
+                      >
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>{item.name}</Typography>
+                        <Typography variant="body2" color="text.secondary">{item.description}</Typography>
+                      </ListItem>
+                    ))}
+                  </List>
+                )}
+              </Box>
             </Collapse>
           </Paper>
         )

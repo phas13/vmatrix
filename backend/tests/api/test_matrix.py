@@ -4,13 +4,16 @@ from uuid import uuid4
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.exc import IntegrityError
 
+from app.core.exceptions import LLMUnavailableError
 from app.core.security import create_access_token
 from app.db.session import get_db_session
+from app.models.llm_call_log import LLMCallLog, LLMOperation
 from app.models.matrix import CompetencyMatrix, CompetencyCategory, CompetencySubItem, MatrixStatus
 from app.models.system_settings import SystemSettings
 from app.models.user import SpecialistLevel, User, UserRole
-from app.providers.base import CategoryDraft, SubItemDraft
+from app.providers.base import CategoryDraft, MatrixGenerationContext, SubItemDraft
 from main import app
 
 CSRF_TOKEN = "test-csrf-token-matrix"
@@ -20,7 +23,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _make_user(role: UserRole = UserRole.SPECIALIST, specialist_level: SpecialistLevel | None = SpecialistLevel.JUNIOR, cm_id=None, is_active: bool = True) -> MagicMock:
+def _make_user(
+    role: UserRole = UserRole.SPECIALIST,
+    specialist_level: SpecialistLevel | None = SpecialistLevel.JUNIOR,
+    cm_id=None,
+    is_active: bool = True,
+) -> MagicMock:
     u = MagicMock(spec=User)
     u.id = uuid4()
     u.email = f"{role.value}-{u.id.hex[:6]}@example.com"
@@ -48,6 +56,13 @@ def _csrf_headers() -> dict[str, str]:
 
 def _scalar_one_or_none_result(value) -> MagicMock:
     r = MagicMock()
+    r.scalar_one_or_none.return_value = value
+    return r
+
+
+def _scalar_one_result(value) -> MagicMock:
+    r = MagicMock()
+    r.scalar_one.return_value = value
     r.scalar_one_or_none.return_value = value
     return r
 
@@ -160,14 +175,14 @@ async def test_generate_matrix_as_specialist_returns_200(async_client: AsyncClie
     # 1. get_current_user lookup
     # 2. check existing matrix → None
     # 3. _load_specialist lookup
-    # 4. get_settings
-    # 5. get_matrix (after commit) with selectinload
+    # 4. SystemSettings direct read (no bootstrap)
+    # 5. eager-load select after commit
     override, _, _ = _routed_db(
         _scalar_one_or_none_result(specialist),     # get_current_user
         _scalar_one_or_none_result(None),           # no existing matrix
         _scalar_one_or_none_result(specialist),     # _load_specialist
-        _scalar_one_or_none_result(settings_row),   # get_settings
-        _scalar_one_or_none_result(matrix_mock),    # get_matrix eager load
+        _scalar_one_or_none_result(settings_row),   # SystemSettings read
+        _scalar_one_result(matrix_mock),            # eager-load select after commit
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -192,14 +207,95 @@ async def test_generate_matrix_as_specialist_returns_200(async_client: AsyncClie
 
 
 @pytest.mark.asyncio
+async def test_generate_matrix_provider_called_with_expected_context(async_client: AsyncClient):
+    """Regression guard: matrix service must hand the LLM provider the
+    correct (specialist_id, level, domain) tuple — wrong values would
+    silently produce a mismatched matrix."""
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.MIDDLE)
+    settings_row = _make_settings(domain="DevOps")
+    matrix_mock = _make_matrix(specialist)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(None),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(settings_row),
+        _scalar_one_result(matrix_mock),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    with patch("app.services.matrix_service.get_llm_provider") as mock_factory:
+        mock_provider = AsyncMock()
+        mock_provider.generate_initial_matrix.return_value = (_MOCK_CATEGORIES, 500, 1200)
+        mock_factory.return_value = mock_provider
+        try:
+            token = _make_jwt(specialist)
+            response = await async_client.post(
+                f"/api/v1/matrix/{specialist.id}/actions/generate",
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    mock_provider.generate_initial_matrix.assert_called_once()
+    (call_arg,) = mock_provider.generate_initial_matrix.call_args.args
+    assert isinstance(call_arg, MatrixGenerationContext)
+    assert call_arg.specialist_id == specialist.id
+    assert call_arg.level == "middle"
+    assert call_arg.domain == "DevOps"
+
+
+@pytest.mark.asyncio
+async def test_generate_matrix_logs_call_on_success(async_client: AsyncClient):
+    """Hard architectural rule: every LLM call must persist an LLMCallLog row."""
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+    settings_row = _make_settings()
+    matrix_mock = _make_matrix(specialist)
+
+    override, _, added = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(None),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(settings_row),
+        _scalar_one_result(matrix_mock),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    with patch("app.services.matrix_service.get_llm_provider") as mock_factory:
+        mock_provider = AsyncMock()
+        mock_provider.generate_initial_matrix.return_value = (_MOCK_CATEGORIES, 500, 1200)
+        mock_factory.return_value = mock_provider
+        try:
+            token = _make_jwt(specialist)
+            await async_client.post(
+                f"/api/v1/matrix/{specialist.id}/actions/generate",
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    log_entries = [obj for obj in added if isinstance(obj, LLMCallLog)]
+    assert len(log_entries) == 1
+    log = log_entries[0]
+    assert log.operation == LLMOperation.MATRIX_GENERATION
+    assert log.specialist_id == specialist.id
+    assert log.error is None
+    assert log.tokens_used == 1200
+    assert log.latency_ms is not None
+    assert log.request_payload is not None  # encrypted prompt body present
+
+
+@pytest.mark.asyncio
 async def test_generate_matrix_returns_409_when_already_exists(async_client: AsyncClient):
     specialist = _make_user(role=UserRole.SPECIALIST)
     existing_matrix = _make_matrix(specialist)
 
-    # 1. get_current_user, 2. check existing matrix → found → 409
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(specialist),      # get_current_user
-        _scalar_one_or_none_result(existing_matrix), # existing matrix found
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(existing_matrix),
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -216,6 +312,45 @@ async def test_generate_matrix_returns_409_when_already_exists(async_client: Asy
     assert response.status_code == 409
     data = response.json()
     assert "matrix-already-exists" in data["type"]
+
+
+@pytest.mark.asyncio
+async def test_generate_matrix_concurrent_commit_returns_409(async_client: AsyncClient):
+    """Race: another worker inserts the matrix between our SELECT-not-found
+    and our INSERT. The unique constraint fires on commit; service must
+    catch IntegrityError and return 409 instead of leaking 500."""
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+    settings_row = _make_settings()
+
+    override, mock_db, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(None),           # no existing matrix at SELECT time
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(settings_row),
+    )
+    mock_db.commit.side_effect = [
+        IntegrityError("INSERT", {}, Exception("uq_matrices_specialist_id"))
+    ]
+    app.dependency_overrides[get_db_session] = override
+
+    with patch("app.services.matrix_service.get_llm_provider") as mock_factory:
+        mock_provider = AsyncMock()
+        mock_provider.generate_initial_matrix.return_value = (_MOCK_CATEGORIES, 500, 1200)
+        mock_factory.return_value = mock_provider
+        try:
+            token = _make_jwt(specialist)
+            response = await async_client.post(
+                f"/api/v1/matrix/{specialist.id}/actions/generate",
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    data = response.json()
+    assert "matrix-already-exists" in data["type"]
+    mock_db.rollback.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -240,6 +375,85 @@ async def test_generate_matrix_as_cm_returns_403(async_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_generate_matrix_as_hr_returns_403(async_client: AsyncClient):
+    hr = _make_user(role=UserRole.HR)
+    specialist = _make_user(role=UserRole.SPECIALIST)
+
+    override, _, _ = _routed_db(_scalar_one_or_none_result(hr))
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(hr)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/generate",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_generate_matrix_admin_targets_non_specialist_returns_404(async_client: AsyncClient):
+    """ADMIN cannot generate a matrix for a non-Specialist user (CM, HR,
+    another ADMIN). _load_specialist must reject by role, not just by
+    is_active."""
+    admin = _make_user(role=UserRole.ADMIN, specialist_level=None)
+    cm_target = _make_user(role=UserRole.CM, specialist_level=None)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),       # get_current_user
+        _scalar_one_or_none_result(None),        # no existing matrix
+        _scalar_one_or_none_result(cm_target),   # _load_specialist → not a specialist
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            f"/api/v1/matrix/{cm_target.id}/actions/generate",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    data = response.json()
+    assert "specialist-not-found" in data["type"]
+
+
+@pytest.mark.asyncio
+async def test_generate_matrix_without_level_returns_422(async_client: AsyncClient):
+    """Specialist whose `specialist_level` is NULL must not be silently
+    coerced to 'junior'; the service must fail explicitly."""
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=None)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(None),
+        _scalar_one_or_none_result(specialist),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(specialist)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/generate",
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    data = response.json()
+    assert "specialist-level-required" in data["type"]
+
+
+@pytest.mark.asyncio
 async def test_generate_matrix_without_csrf_returns_403(async_client: AsyncClient):
     specialist = _make_user(role=UserRole.SPECIALIST)
     override, _, _ = _routed_db(_scalar_one_or_none_result(specialist))
@@ -250,7 +464,6 @@ async def test_generate_matrix_without_csrf_returns_403(async_client: AsyncClien
         response = await async_client.post(
             f"/api/v1/matrix/{specialist.id}/actions/generate",
             cookies={"access_token": token},
-            # no CSRF header
         )
     finally:
         app.dependency_overrides.clear()
@@ -260,17 +473,14 @@ async def test_generate_matrix_without_csrf_returns_403(async_client: AsyncClien
 
 @pytest.mark.asyncio
 async def test_generate_matrix_llm_unavailable_returns_503(async_client: AsyncClient):
-    from app.core.exceptions import LLMUnavailableError
-
     specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
     settings_row = _make_settings()
 
-    # 1. get_current_user, 2. no existing matrix, 3. _load_specialist, 4. get_settings
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(specialist),     # get_current_user
-        _scalar_one_or_none_result(None),           # no existing matrix
-        _scalar_one_or_none_result(specialist),     # _load_specialist
-        _scalar_one_or_none_result(settings_row),   # get_settings
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(None),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(settings_row),
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -290,7 +500,86 @@ async def test_generate_matrix_llm_unavailable_returns_503(async_client: AsyncCl
 
     assert response.status_code == 503
     data = response.json()
+    assert data["type"] == "https://vmatrix.app/errors/llm-unavailable"
     assert "Matrix generation is temporarily unavailable" in data["detail"]
+
+
+@pytest.mark.asyncio
+async def test_generate_matrix_empty_categories_returns_503(async_client: AsyncClient):
+    """If the provider returns an empty list (slip past schema validation),
+    the service must treat it as LLM-unavailable rather than silently
+    creating an empty matrix that the user is then locked out of via 409."""
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+    settings_row = _make_settings()
+
+    override, _, added = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(None),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(settings_row),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    with patch("app.services.matrix_service.get_llm_provider") as mock_factory:
+        mock_provider = AsyncMock()
+        mock_provider.generate_initial_matrix.return_value = ([], 100, 50)
+        mock_factory.return_value = mock_provider
+        try:
+            token = _make_jwt(specialist)
+            response = await async_client.post(
+                f"/api/v1/matrix/{specialist.id}/actions/generate",
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    data = response.json()
+    assert data["type"] == "https://vmatrix.app/errors/llm-unavailable"
+    log_entries = [obj for obj in added if isinstance(obj, LLMCallLog)]
+    assert len(log_entries) == 1
+    assert "no categories" in (log_entries[0].error or "")
+
+
+@pytest.mark.asyncio
+async def test_generate_matrix_llm_unavailable_logs_call_with_error(async_client: AsyncClient):
+    """LLM failure must still write an LLMCallLog row with the error text —
+    audit trail must not be skipped on the failure path."""
+    specialist = _make_user(role=UserRole.SPECIALIST, specialist_level=SpecialistLevel.JUNIOR)
+    settings_row = _make_settings()
+
+    override, mock_db, added = _routed_db(
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(None),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(settings_row),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    with patch("app.services.matrix_service.get_llm_provider") as mock_factory:
+        mock_provider = AsyncMock()
+        mock_provider.generate_initial_matrix.side_effect = LLMUnavailableError("upstream timeout")
+        mock_factory.return_value = mock_provider
+        try:
+            token = _make_jwt(specialist)
+            await async_client.post(
+                f"/api/v1/matrix/{specialist.id}/actions/generate",
+                cookies=_csrf_cookies(token),
+                headers=_csrf_headers(),
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+    log_entries = [obj for obj in added if isinstance(obj, LLMCallLog)]
+    assert len(log_entries) == 1
+    log = log_entries[0]
+    assert log.error == "upstream timeout"
+    assert log.tokens_used is None
+    assert log.latency_ms is not None
+    # Service must rollback before committing the failure log to avoid
+    # leaking pending writes from the same session.
+    mock_db.rollback.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -302,7 +591,6 @@ async def test_generate_matrix_as_different_specialist_returns_404(async_client:
     app.dependency_overrides[get_db_session] = override
 
     try:
-        # specialist_a's JWT but requesting specialist_b's matrix
         token = _make_jwt(specialist_a)
         response = await async_client.post(
             f"/api/v1/matrix/{specialist_b.id}/actions/generate",
@@ -322,10 +610,9 @@ async def test_get_matrix_as_owner_specialist_returns_200(async_client: AsyncCli
     specialist = _make_user(role=UserRole.SPECIALIST)
     matrix_mock = _make_matrix(specialist)
 
-    # 1. get_current_user, 2. get_matrix with selectinload
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(specialist),  # get_current_user
-        _scalar_one_or_none_result(matrix_mock),  # get_matrix
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix_mock),
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -348,10 +635,9 @@ async def test_get_matrix_as_owner_specialist_returns_200(async_client: AsyncCli
 async def test_get_matrix_not_found_returns_404(async_client: AsyncClient):
     specialist = _make_user(role=UserRole.SPECIALIST)
 
-    # 1. get_current_user, 2. matrix not found → 404
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(specialist),  # get_current_user
-        _scalar_one_or_none_result(None),        # no matrix
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(None),
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -390,15 +676,17 @@ async def test_get_matrix_as_different_specialist_returns_404(async_client: Asyn
 
 
 @pytest.mark.asyncio
-async def test_get_matrix_as_cm_returns_200(async_client: AsyncClient):
+async def test_get_matrix_as_cm_in_team_returns_200(async_client: AsyncClient):
+    """CM may read a matrix for a Specialist they are assigned to."""
     cm = _make_user(role=UserRole.CM)
-    specialist = _make_user(role=UserRole.SPECIALIST)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
     matrix_mock = _make_matrix(specialist)
 
-    # 1. get_current_user (CM), 2. get_matrix
+    # 1. get_current_user, 2. specialist lookup (cm-team check), 3. matrix select
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(cm),            # get_current_user
-        _scalar_one_or_none_result(matrix_mock),   # get_matrix
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),
+        _scalar_one_or_none_result(matrix_mock),
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -415,15 +703,42 @@ async def test_get_matrix_as_cm_returns_200(async_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_get_matrix_as_cm_outside_team_returns_404(async_client: AsyncClient):
+    """A CM who is NOT assigned to this Specialist must get 404 — never
+    leak the existence of a cross-team matrix."""
+    cm = _make_user(role=UserRole.CM)
+    other_cm_id = uuid4()
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=other_cm_id)
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(specialist),
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.get(
+            f"/api/v1/matrix/{specialist.id}",
+            cookies={"access_token": token},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+    data = response.json()
+    assert "matrix-not-found" in data["type"]
+
+
+@pytest.mark.asyncio
 async def test_get_matrix_as_admin_returns_200(async_client: AsyncClient):
     admin = _make_user(role=UserRole.ADMIN)
     specialist = _make_user(role=UserRole.SPECIALIST)
     matrix_mock = _make_matrix(specialist)
 
-    # 1. get_current_user (admin), 2. get_matrix
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(admin),         # get_current_user
-        _scalar_one_or_none_result(matrix_mock),   # get_matrix
+        _scalar_one_or_none_result(admin),
+        _scalar_one_or_none_result(matrix_mock),
     )
     app.dependency_overrides[get_db_session] = override
 

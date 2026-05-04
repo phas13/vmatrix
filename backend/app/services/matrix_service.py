@@ -3,6 +3,7 @@ import time
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,10 +13,11 @@ from app.core.exceptions import LLMUnavailableError, ProblemHTTPException
 from app.core.security import encrypt_field
 from app.models.llm_call_log import LLMCallLog, LLMOperation
 from app.models.matrix import CompetencyCategory, CompetencyMatrix, CompetencySubItem, MatrixStatus
-from app.models.user import User
+from app.models.system_settings import SystemSettings
+from app.models.user import User, UserRole
 from app.providers.base import MatrixGenerationContext
 from app.providers.factory import get_llm_provider
-from app.services import admin_service
+from app.services.prompt_builder import build_matrix_generation_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -59,21 +61,66 @@ def _llm_unavailable(instance: str) -> ProblemHTTPException:
     )
 
 
-async def _load_specialist(specialist_id: UUID, db: AsyncSession) -> User:
+def _specialist_not_found(specialist_id: UUID, instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=404,
+        detail={
+            "type": "https://vmatrix.app/errors/specialist-not-found",
+            "title": "Specialist not found",
+            "status": 404,
+            "detail": f"Specialist {specialist_id} not found",
+            "instance": instance,
+        },
+    )
+
+
+def _specialist_level_required(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=422,
+        detail={
+            "type": "https://vmatrix.app/errors/specialist-level-required",
+            "title": "Specialist level required",
+            "status": 422,
+            "detail": "Specialist must have a seniority level assigned before a matrix can be generated",
+            "instance": instance,
+        },
+    )
+
+
+def _domain_unavailable(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=503,
+        detail={
+            "type": "https://vmatrix.app/errors/competency-domain-unavailable",
+            "title": "Competency domain unavailable",
+            "status": 503,
+            "detail": "Default competency domain is not configured",
+            "instance": instance,
+        },
+    )
+
+
+async def _load_specialist(specialist_id: UUID, db: AsyncSession, instance: str) -> User:
     result = await db.execute(select(User).where(User.id == specialist_id))
     user = result.scalar_one_or_none()
-    if user is None or not user.is_active:
-        raise ProblemHTTPException(
-            status_code=404,
-            detail={
-                "type": "https://vmatrix.app/errors/specialist-not-found",
-                "title": "Specialist not found",
-                "status": 404,
-                "detail": f"Specialist {specialist_id} not found",
-                "instance": "",
-            },
-        )
+    if user is None or not user.is_active or user.role != UserRole.SPECIALIST:
+        raise _specialist_not_found(specialist_id, instance)
     return user
+
+
+async def _read_default_domain(db: AsyncSession) -> str | None:
+    """Read the singleton SystemSettings row without bootstrapping side-effects.
+
+    The singleton row is seeded by migration; this query never writes. Returns
+    the raw `default_competency_domain` string, or None if the row is missing
+    or the value is empty/whitespace.
+    """
+    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None
+    domain = (row.default_competency_domain or "").strip()
+    return domain or None
 
 
 async def generate_initial_matrix(
@@ -91,11 +138,14 @@ async def generate_initial_matrix(
     if existing.scalar_one_or_none() is not None:
         raise _matrix_already_exists(instance)
 
-    specialist = await _load_specialist(specialist_id, db)
-    level = specialist.specialist_level.value if specialist.specialist_level else "junior"
+    specialist = await _load_specialist(specialist_id, db, instance)
+    if specialist.specialist_level is None:
+        raise _specialist_level_required(instance)
+    level = specialist.specialist_level.value
 
-    settings_row = await admin_service.get_settings(db)
-    domain = settings_row.default_competency_domain
+    domain = await _read_default_domain(db)
+    if domain is None:
+        raise _domain_unavailable(instance)
 
     provider = get_llm_provider()
     context = MatrixGenerationContext(
@@ -104,14 +154,15 @@ async def generate_initial_matrix(
         domain=domain,
     )
 
-    prompt_summary = encrypt_field(f"level={level} domain={domain}")
+    prompt = build_matrix_generation_prompt(level=level, domain=domain)
+    encrypted_prompt = encrypt_field(prompt)
 
     start = time.monotonic()
     llm_log = LLMCallLog(
         provider=settings.LLM_PROVIDER,
         operation=LLMOperation.MATRIX_GENERATION,
         specialist_id=specialist_id,
-        request_payload=prompt_summary,
+        request_payload=encrypted_prompt,
     )
 
     try:
@@ -120,6 +171,17 @@ async def generate_initial_matrix(
         latency_ms = int((time.monotonic() - start) * 1000)
         llm_log.latency_ms = latency_ms
         llm_log.error = str(exc)
+        await db.rollback()
+        db.add(llm_log)
+        await db.commit()
+        raise _llm_unavailable(instance)
+
+    if not categories_draft:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        llm_log.latency_ms = latency_ms
+        llm_log.tokens_used = tokens_used
+        llm_log.error = "provider returned no categories"
+        await db.rollback()
         db.add(llm_log)
         await db.commit()
         raise _llm_unavailable(instance)
@@ -156,8 +218,11 @@ async def generate_initial_matrix(
             db.add(sub_item)
 
     db.add(llm_log)
-    await db.commit()
-    await db.refresh(matrix)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise _matrix_already_exists(instance)
 
     logger.info(
         "matrix generated specialist_id=%s domain=%s categories=%d latency_ms=%d",
@@ -167,7 +232,14 @@ async def generate_initial_matrix(
         latency_ms,
     )
 
-    return await get_matrix(specialist_id, db, current_user=current_user, instance=instance)
+    eager = await db.execute(
+        select(CompetencyMatrix)
+        .where(CompetencyMatrix.id == matrix.id)
+        .options(
+            selectinload(CompetencyMatrix.categories).selectinload(CompetencyCategory.sub_items)
+        )
+    )
+    return eager.scalar_one()
 
 
 async def get_matrix(
@@ -178,6 +250,12 @@ async def get_matrix(
     instance: str,
 ) -> CompetencyMatrix:
     await verify_specialist_ownership(specialist_id, current_user)
+
+    if current_user.role == UserRole.CM:
+        owner_result = await db.execute(select(User).where(User.id == specialist_id))
+        owner = owner_result.scalar_one_or_none()
+        if owner is None or owner.cm_id != current_user.id:
+            raise _matrix_not_found(instance)
 
     result = await db.execute(
         select(CompetencyMatrix)

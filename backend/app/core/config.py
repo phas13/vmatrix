@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     FERNET_KEY: str = "9i-5Juy2gruo4M0LMe5nDDDEd40xBlm9Nhk-btgKOTI="
 
     LLM_PROVIDER: str = "claude"
+    LLM_MODEL: str = "claude-opus-4-7"
+    LLM_TIMEOUT_SECONDS: float = 60.0
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
