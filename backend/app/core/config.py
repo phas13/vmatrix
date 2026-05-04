@@ -13,11 +13,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change_me_to_a_long_random_secret"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
-    # DEV-ONLY placeholder. Valid Fernet key (32 url-safe base64 bytes) so
-    # the app boots without a .env. Override in `.env` and in every non-dev
-    # environment. Generate with:
+    # FERNET_KEY must be provided via environment variable (32 url-safe base64 bytes).
+    # Generate one with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    FERNET_KEY: str = "9i-5Juy2gruo4M0LMe5nDDDEd40xBlm9Nhk-btgKOTI="
+    FERNET_KEY: str
 
     LLM_PROVIDER: str = "claude"
     LLM_MODEL: str = "claude-opus-4-7"

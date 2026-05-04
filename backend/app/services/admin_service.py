@@ -65,7 +65,10 @@ async def create_user(
     instance: str = "/api/v1/admin/users",
 ) -> User:
     if body.cm_id is not None:
-        cm_lookup = await db.execute(select(User).where(User.id == body.cm_id))
+        # Lock the CM user row to ensure they remain active and in the role during assignment
+        cm_lookup = await db.execute(
+            select(User).where(User.id == body.cm_id).with_for_update()
+        )
         cm_user = cm_lookup.scalar_one_or_none()
         if cm_user is None or cm_user.role != UserRole.CM or not cm_user.is_active:
             raise _invalid_cm(instance)
@@ -81,10 +84,11 @@ async def create_user(
     db.add(user)
 
     if body.role == UserRole.SPECIALIST and body.cm_id is not None:
+        content = f"{body.full_name} has been assigned to you — begin initialization"
         notification = Notification(
             user_id=body.cm_id,
             type=NotificationType.NEW_CM_ASSIGNMENT,
-            content=f"{body.full_name} has been assigned to you — begin initialization",
+            content=content[:1000],
         )
         db.add(notification)
 
@@ -170,16 +174,17 @@ async def update_specialist_cm(
             )
         )
         cm_user = cm_result.scalar_one_or_none()
-        if cm_user is None:
+        if cm_user is None or cm_user.role != UserRole.CM or not cm_user.is_active:
             raise _invalid_cm(instance)
 
     user.cm_id = cm_id
 
     if cm_id is not None:
+        content = f"{user.full_name} has been assigned to you"
         notification = Notification(
             user_id=cm_id,
             type=NotificationType.NEW_CM_ASSIGNMENT,
-            content=f"{user.full_name} has been assigned to you",
+            content=content[:1000],
         )
         db.add(notification)
 
@@ -237,7 +242,7 @@ async def list_users(
 
 
 async def get_settings(db: AsyncSession) -> SystemSettings:
-    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1).with_for_update())
     row = result.scalar_one_or_none()
     if row is None:
         # Prevent race condition by using a try-except block on the singleton insert
@@ -261,7 +266,12 @@ async def update_settings(
     actor_id: UUID,
     instance: str,
 ) -> SystemSettings:
-    row = await get_settings(db)
+    # Atomic select for update to prevent concurrent overwrites
+    result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1).with_for_update())
+    row = result.scalar_one_or_none()
+    if row is None:
+        row = await get_settings(db) # Fallback to bootstrap logic
+
     if body.promotion_threshold is not None:
         row.promotion_threshold = body.promotion_threshold
     if body.default_competency_domain is not None:
@@ -279,7 +289,8 @@ async def reset_user_credentials(
     actor_id: UUID,
     instance: str,
 ) -> str:
-    result = await db.execute(select(User).where(User.id == user_id))
+    # Lock target user to prevent concurrent credential changes
+    result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     user = result.scalar_one_or_none()
     if user is None:
         raise ProblemHTTPException(
@@ -302,10 +313,11 @@ async def reset_user_credentials(
         .values(revoked_at=datetime.now(timezone.utc))
     )
 
+    content = "Your credentials have been reset by an administrator — please log in with your new temporary password"
     notification = Notification(
         user_id=user_id,
         type=NotificationType.CREDENTIAL_RESET,
-        content="Your credentials have been reset by an administrator — please log in with your new temporary password",
+        content=content[:1000],
     )
     db.add(notification)
 

@@ -134,7 +134,7 @@ async def generate_initial_matrix(
     await verify_specialist_ownership(specialist_id, current_user)
 
     existing = await db.execute(
-        select(CompetencyMatrix).where(CompetencyMatrix.specialist_id == specialist_id)
+        select(CompetencyMatrix).where(CompetencyMatrix.specialist_id == specialist_id).with_for_update()
     )
     if existing.scalar_one_or_none() is not None:
         raise _matrix_already_exists(instance)
@@ -144,9 +144,13 @@ async def generate_initial_matrix(
         raise _specialist_level_required(instance)
     level = specialist.specialist_level.value
 
-    domain = await _read_default_domain(db)
-    if domain is None:
+    raw_domain = await _read_default_domain(db)
+    if raw_domain is None:
         raise _domain_unavailable(instance)
+    
+    # Sanitize domain for prompt safety: alphanumeric, spaces, and hyphens only; max 50 chars.
+    import re
+    domain = re.sub(r"[^a-zA-Z0-9 \-]", "", raw_domain)[:50].strip()
 
     provider = get_llm_provider()
     context = MatrixGenerationContext(
@@ -201,8 +205,8 @@ async def generate_initial_matrix(
     for i, cat_draft in enumerate(categories_draft):
         category = CompetencyCategory(
             matrix_id=matrix.id,
-            name=cat_draft.name,
-            description=cat_draft.description,
+            name=cat_draft.name[:255],  # Truncate to DB limit
+            description=cat_draft.description[:1000] if cat_draft.description else None,
             order=i,
         )
         db.add(category)
@@ -211,8 +215,8 @@ async def generate_initial_matrix(
         for j, sub_draft in enumerate(cat_draft.sub_items):
             sub_item = CompetencySubItem(
                 category_id=category.id,
-                name=sub_draft.name,
-                description=sub_draft.description,
+                name=sub_draft.name[:255],  # Truncate to DB limit
+                description=sub_draft.description[:1000] if sub_draft.description else None,
                 order=j,
                 is_flagged=False,
             )
@@ -327,6 +331,7 @@ async def flag_sub_item(
         .join(CompetencyMatrix, CompetencyCategory.matrix_id == CompetencyMatrix.id)
         .where(CompetencySubItem.id == sub_item_id)
         .where(CompetencyMatrix.specialist_id == specialist_id)
+        .with_for_update(of=CompetencyMatrix)
     )
     row = result.first()
     if row is None:
@@ -337,7 +342,7 @@ async def flag_sub_item(
         raise _matrix_not_editable(instance)
 
     sub_item.is_flagged = True
-    sub_item.flag_note = note
+    sub_item.flag_note = note[:500] if note else None  # Truncate to match schema/UI
     await db.commit()
     await db.refresh(sub_item)
     return sub_item
@@ -359,6 +364,7 @@ async def unflag_sub_item(
         .join(CompetencyMatrix, CompetencyCategory.matrix_id == CompetencyMatrix.id)
         .where(CompetencySubItem.id == sub_item_id)
         .where(CompetencyMatrix.specialist_id == specialist_id)
+        .with_for_update(of=CompetencyMatrix)
     )
     row = result.first()
     if row is None:
@@ -385,7 +391,9 @@ async def submit_for_review(
     await verify_specialist_ownership(specialist_id, current_user)
 
     result = await db.execute(
-        select(CompetencyMatrix).where(CompetencyMatrix.specialist_id == specialist_id)
+        select(CompetencyMatrix)
+        .where(CompetencyMatrix.specialist_id == specialist_id)
+        .with_for_update()
     )
     matrix = result.scalar_one_or_none()
     if matrix is None:
@@ -397,10 +405,11 @@ async def submit_for_review(
 
     specialist = await _load_specialist(specialist_id, db, instance)
     if specialist.cm_id is not None:
+        content = f"{specialist.full_name}'s competency matrix is ready for your review"
         notification = Notification(
             user_id=specialist.cm_id,
             type=NotificationType.MATRIX_PENDING_REVIEW,
-            content=f"{specialist.full_name}'s competency matrix is ready for your review",
+            content=content[:1000],
         )
         db.add(notification)
 

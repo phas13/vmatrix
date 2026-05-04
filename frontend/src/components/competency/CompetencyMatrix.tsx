@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import {
-  Box, Button, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
+  Box, Button, ButtonBase, Collapse, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, IconButton, List, ListItem, Paper, TextField, Typography,
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -57,19 +57,18 @@ export default function CompetencyMatrix({
         const panelId = `${idPrefix}-cat-${cat.id}`
         return (
           <Paper key={cat.id} variant="outlined" sx={{ mb: 1 }}>
-            <Box
-              role="button"
-              tabIndex={0}
+            <ButtonBase
               aria-expanded={isExpanded}
               aria-controls={panelId}
               onClick={() => toggle(cat.id)}
               onKeyDown={(e) => handleKeyDown(e, cat.id)}
               sx={{
+                width: '100%',
+                textAlign: 'left',
                 display: 'flex',
                 alignItems: 'center',
                 px: 2,
                 py: 1.5,
-                cursor: 'pointer',
                 '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '-2px' },
                 borderRadius: 1,
               }}
@@ -84,7 +83,7 @@ export default function CompetencyMatrix({
                 {t('matrix.itemCount', { count: cat.subItems.length })}
               </Typography>
               {isExpanded ? <ExpandLessIcon aria-hidden /> : <ExpandMoreIcon aria-hidden />}
-            </Box>
+            </ButtonBase>
 
             <Collapse in={isExpanded} unmountOnExit>
               <Divider />
