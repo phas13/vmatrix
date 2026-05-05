@@ -34,9 +34,11 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
+    op.create_index("ix_competency_matrices_approved_by_id", "competency_matrices", ["approved_by_id"])
 
 
 def downgrade() -> None:
+    op.drop_index("ix_competency_matrices_approved_by_id", table_name="competency_matrices")
     op.drop_constraint("fk_competency_matrices_approved_by_id", "competency_matrices", type_="foreignkey")
     op.drop_column("competency_matrices", "cm_changes")
     op.drop_column("competency_matrices", "approved_at")

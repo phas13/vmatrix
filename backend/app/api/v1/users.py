@@ -59,7 +59,10 @@ async def mark_notification_read(
                 "instance": f"/api/v1/users/me/notifications/{notification_id}/read",
             },
         )
-    notification.is_read = True
-    notification.read_at = datetime.now(timezone.utc)
-    await db.commit()
+    
+    if not notification.is_read:
+        notification.is_read = True
+        notification.read_at = datetime.now(timezone.utc)
+        await db.commit()
+        
     return {"ok": True}

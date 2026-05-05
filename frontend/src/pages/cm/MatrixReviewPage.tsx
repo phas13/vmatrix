@@ -40,7 +40,7 @@ export default function MatrixReviewPage() {
   }
 
   const handleRemoveSubItem = (subItemId: string) => {
-    setLocalRemovals((prev) => [...prev.filter((id) => id !== subItemId), subItemId])
+    setLocalRemovals((prev) => Array.from(new Set([...prev, subItemId])))
     setLocalEdits((prev) => {
       const next = { ...prev }
       delete next[subItemId]
@@ -71,10 +71,11 @@ export default function MatrixReviewPage() {
   }
 
   if (error || !matrix) {
+    const errorMessage = (error as any)?.response?.data?.detail?.detail || t('matrix.fetchError')
     return (
       <Box>
         <Typography variant="h5" sx={{ mb: 3 }}>{t('cm.matrixReview.title')}</Typography>
-        <Alert severity="error">{t('matrix.fetchError')}</Alert>
+        <Alert severity="error">{errorMessage}</Alert>
       </Box>
     )
   }
@@ -120,7 +121,9 @@ export default function MatrixReviewPage() {
           </Box>
 
           {approveMutation.isError && (
-            <Alert severity="error" sx={{ mb: 2 }}>{t('cm.matrixReview.approveError')}</Alert>
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {(approveMutation.error as any)?.response?.data?.detail?.detail || t('cm.matrixReview.approveError')}
+            </Alert>
           )}
         </>
       )}

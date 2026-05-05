@@ -68,6 +68,12 @@ def _scalar_one_result(value) -> MagicMock:
     return r
 
 
+def _scalars_result(values) -> MagicMock:
+    r = MagicMock()
+    r.scalars.return_value.all.return_value = values
+    return r
+
+
 def _populate_after_insert(obj) -> None:
     if not hasattr(obj, "id") or obj.id is None:
         obj.id = uuid4()
@@ -1253,15 +1259,13 @@ async def test_approve_matrix_returns_200_with_approved_status(async_client: Asy
 
     # DB call order for CM:
     # 1. get_current_user (CM)
-    # 2. CM ownership check (specialist lookup)
-    # 3. matrix with selectinload + for_update
-    # 4. _load_specialist (for notification)
-    # 5. eager reload after commit
+    # 2. matrix with selectinload + for_update
+    # 3. CM ownership check (specialist lookup)
+    # 4. eager reload after commit
     override, _, added = _routed_db(
         _scalar_one_or_none_result(cm),           # get_current_user
-        _scalar_one_or_none_result(specialist),   # CM ownership check
         _scalar_one_or_none_result(matrix),       # matrix fetch
-        _scalar_one_or_none_result(specialist),   # _load_specialist
+        _scalar_one_or_none_result(specialist),   # CM ownership check
         _scalar_one_result(matrix_approved),      # eager reload
     )
     app.dependency_overrides[get_db_session] = override
@@ -1296,7 +1300,6 @@ async def test_approve_matrix_with_edits_updates_sub_items(async_client: AsyncCl
 
     override, _, _ = _routed_db(
         _scalar_one_or_none_result(cm),
-        _scalar_one_or_none_result(specialist),
         _scalar_one_or_none_result(matrix),
         _scalar_one_or_none_result(specialist),
         _scalar_one_result(matrix_approved),
@@ -1332,11 +1335,11 @@ async def test_approve_matrix_with_removals_deletes_sub_items(async_client: Asyn
     matrix_approved = _make_approved_matrix(specialist, cm.id)
 
     override, mock_db, _ = _routed_db(
-        _scalar_one_or_none_result(cm),
-        _scalar_one_or_none_result(specialist),
-        _scalar_one_or_none_result(matrix),
-        _scalar_one_or_none_result(specialist),
-        _scalar_one_result(matrix_approved),
+        _scalar_one_or_none_result(cm),           # 1. get_current_user
+        _scalar_one_or_none_result(matrix),       # 2. matrix fetch
+        _scalar_one_or_none_result(specialist),   # 3. owner lookup
+        _scalars_result([]),                      # 4. re-sequencing
+        _scalar_one_result(matrix_approved),      # 5. final reload
     )
     mock_db.delete = AsyncMock()
     app.dependency_overrides[get_db_session] = override
@@ -1372,11 +1375,11 @@ async def test_approve_matrix_records_cm_changes(async_client: AsyncClient):
     matrix_approved = _make_approved_matrix(specialist, cm.id)
 
     override, mock_db, _ = _routed_db(
-        _scalar_one_or_none_result(cm),
-        _scalar_one_or_none_result(specialist),
-        _scalar_one_or_none_result(matrix),
-        _scalar_one_or_none_result(specialist),
-        _scalar_one_result(matrix_approved),
+        _scalar_one_or_none_result(cm),           # 1. get_current_user
+        _scalar_one_or_none_result(matrix),       # 2. matrix fetch
+        _scalar_one_or_none_result(specialist),   # 3. owner lookup
+        _scalars_result([sub_item]),              # 4. re-sequencing
+        _scalar_one_result(matrix_approved),      # 5. final reload
     )
     mock_db.delete = AsyncMock()
     app.dependency_overrides[get_db_session] = override
@@ -1401,6 +1404,39 @@ async def test_approve_matrix_records_cm_changes(async_client: AsyncClient):
     # Verify cm_changes was set on the matrix object
     assert len(matrix.cm_changes["edits"]) == 1
     assert len(matrix.cm_changes["removals"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_as_admin_returns_200(async_client: AsyncClient):
+    admin = _make_user(role=UserRole.ADMIN)
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    matrix = _make_matrix_pa(specialist)
+    matrix_approved = _make_approved_matrix(specialist, admin.id)
+
+    # DB call order for Admin:
+    # 1. get_current_user (Admin)
+    # 2. matrix fetch
+    # 3. eager reload
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(admin),           # 1. get_current_user
+        _scalar_one_or_none_result(matrix),          # 2. matrix fetch
+        _scalar_one_result(matrix_approved),         # 3. final reload
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(admin)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={"sub_item_edits": [], "sub_items_to_remove": []},
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "APPROVED"
 
 
 @pytest.mark.asyncio
@@ -1450,10 +1486,12 @@ async def test_approve_matrix_cm_not_owner_returns_404(async_client: AsyncClient
     cm = _make_user(role=UserRole.CM)
     other_cm_id = uuid4()
     specialist = _make_user(role=UserRole.SPECIALIST, cm_id=other_cm_id)
+    matrix = _make_matrix_pa(specialist)
 
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(cm),
-        _scalar_one_or_none_result(specialist),  # specialist.cm_id != cm.id
+        _scalar_one_or_none_result(cm),           # 1. get_current_user
+        _scalar_one_or_none_result(matrix),       # 2. matrix fetch
+        _scalar_one_or_none_result(specialist),   # 3. owner lookup (cm_id mismatch)
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -1479,9 +1517,9 @@ async def test_approve_matrix_pending_review_returns_409(async_client: AsyncClie
     matrix = _make_matrix(specialist, status=MatrixStatus.PENDING_REVIEW)
 
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(cm),
-        _scalar_one_or_none_result(specialist),
-        _scalar_one_or_none_result(matrix),
+        _scalar_one_or_none_result(cm),           # 1. get_current_user
+        _scalar_one_or_none_result(matrix),       # 2. matrix fetch
+        _scalar_one_or_none_result(specialist),   # 3. owner lookup
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -1507,9 +1545,9 @@ async def test_approve_matrix_already_approved_returns_409(async_client: AsyncCl
     matrix = _make_approved_matrix(specialist, cm.id)
 
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(cm),
-        _scalar_one_or_none_result(specialist),
-        _scalar_one_or_none_result(matrix),
+        _scalar_one_or_none_result(cm),           # 1. get_current_user
+        _scalar_one_or_none_result(matrix),       # 2. matrix fetch
+        _scalar_one_or_none_result(specialist),   # 3. owner lookup
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -1536,9 +1574,9 @@ async def test_approve_matrix_foreign_sub_item_edit_returns_404(async_client: As
     foreign_id = uuid4()
 
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(cm),
-        _scalar_one_or_none_result(specialist),
-        _scalar_one_or_none_result(matrix),
+        _scalar_one_or_none_result(cm),           # 1. get_current_user
+        _scalar_one_or_none_result(matrix),       # 2. matrix fetch
+        _scalar_one_or_none_result(specialist),   # 3. owner lookup
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -1570,9 +1608,9 @@ async def test_approve_matrix_foreign_sub_item_removal_returns_404(async_client:
     foreign_id = uuid4()
 
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(cm),
-        _scalar_one_or_none_result(specialist),
-        _scalar_one_or_none_result(matrix),
+        _scalar_one_or_none_result(cm),           # 1. get_current_user
+        _scalar_one_or_none_result(matrix),       # 2. matrix fetch
+        _scalar_one_or_none_result(specialist),   # 3. owner lookup
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -1600,9 +1638,8 @@ async def test_approve_matrix_not_found_returns_404(async_client: AsyncClient):
     specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
 
     override, _, _ = _routed_db(
-        _scalar_one_or_none_result(cm),
-        _scalar_one_or_none_result(specialist),
-        _scalar_one_or_none_result(None),  # matrix not found
+        _scalar_one_or_none_result(cm),           # 1. get_current_user
+        _scalar_one_or_none_result(None),         # 2. matrix fetch (None)
     )
     app.dependency_overrides[get_db_session] = override
 
@@ -1619,3 +1656,165 @@ async def test_approve_matrix_not_found_returns_404(async_client: AsyncClient):
 
     assert response.status_code == 404
     assert "matrix-not-found" in response.json()["type"]
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_duplicate_edit_ids_returns_422(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    item_id = uuid4()
+    override, _, _ = _routed_db(_scalar_one_or_none_result(cm))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{uuid4()}/actions/approve",
+            json={
+                "sub_item_edits": [
+                    {"id": str(item_id), "name": "A", "description": "B"},
+                    {"id": str(item_id), "name": "C", "description": "D"},
+                ],
+                "sub_items_to_remove": [],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert "Duplicate IDs in sub_item_edits" in response.text
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_duplicate_removal_ids_returns_422(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    item_id = uuid4()
+    override, _, _ = _routed_db(_scalar_one_or_none_result(cm))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{uuid4()}/actions/approve",
+            json={
+                "sub_item_edits": [],
+                "sub_items_to_remove": [str(item_id), str(item_id)],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert "Duplicate IDs in sub_items_to_remove" in response.text
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_overlap_ids_returns_422(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    item_id = uuid4()
+    override, _, _ = _routed_db(_scalar_one_or_none_result(cm))
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{uuid4()}/actions/approve",
+            json={
+                "sub_item_edits": [{"id": str(item_id), "name": "A", "description": "B"}],
+                "sub_items_to_remove": [str(item_id)],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert "cannot be both edited and removed" in response.text
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_empty_name_edit_returns_422(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix_pa(specialist)
+    sub_item_id = matrix.categories[0].sub_items[0].id
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(matrix),
+        _scalar_one_or_none_result(specialist),
+    )
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={
+                "sub_item_edits": [{"id": str(sub_item_id), "name": "  ", "description": "B"}],
+                "sub_items_to_remove": [],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert "Sub-item name cannot be empty" in response.text
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_long_name_edit_returns_422(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix_pa(specialist)
+    sub_item_id = matrix.categories[0].sub_items[0].id
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(matrix),
+        _scalar_one_or_none_result(specialist),
+    )
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={
+                "sub_item_edits": [{"id": str(sub_item_id), "name": "A" * 256, "description": "B"}],
+                "sub_items_to_remove": [],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert "Sub-item name exceeds 255 chars" in response.text
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_long_description_edit_returns_422(async_client: AsyncClient):
+    cm = _make_user(role=UserRole.CM)
+    specialist = _make_user(role=UserRole.SPECIALIST, cm_id=cm.id)
+    matrix = _make_matrix_pa(specialist)
+    sub_item_id = matrix.categories[0].sub_items[0].id
+
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(cm),
+        _scalar_one_or_none_result(matrix),
+        _scalar_one_or_none_result(specialist),
+    )
+    app.dependency_overrides[get_db_session] = override
+    try:
+        token = _make_jwt(cm)
+        response = await async_client.post(
+            f"/api/v1/matrix/{specialist.id}/actions/approve",
+            json={
+                "sub_item_edits": [{"id": str(sub_item_id), "name": "A", "description": "B" * 1001}],
+                "sub_items_to_remove": [],
+            },
+            cookies=_csrf_cookies(token),
+            headers=_csrf_headers(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 422
+    assert "Sub-item description exceeds 1000 chars" in response.text

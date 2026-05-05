@@ -131,5 +131,12 @@
       "alreadyApproved": "This matrix has already been approved.",
       "discardChanges": "Discard changes"
     }
+  },
+  "notifications": {
+    "types": {
+      "credential_reset": "Your credentials have been reset by an administrator.",
+      "matrix_pending_review": "A specialist has submitted their matrix for review.",
+      "matrix_approved": "Your competency matrix has been approved — you can start assessments."
+    }
   }
 }

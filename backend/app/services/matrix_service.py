@@ -448,12 +448,23 @@ async def approve_matrix(
     current_user: User,
     instance: str,
 ) -> CompetencyMatrix:
-    if current_user.role == UserRole.CM:
-        owner_result = await db.execute(select(User).where(User.id == specialist_id))
-        owner = owner_result.scalar_one_or_none()
-        if owner is None or owner.cm_id != current_user.id:
-            raise _matrix_not_found(instance)
+    # 1. Deduplicate and validate input IDs
+    edit_ids = [e.id for e in request.sub_item_edits]
+    remove_ids = request.sub_items_to_remove
+    
+    if len(set(edit_ids)) != len(edit_ids):
+        raise ProblemHTTPException(status_code=422, detail="Duplicate IDs in sub_item_edits")
+    if len(set(remove_ids)) != len(remove_ids):
+        raise ProblemHTTPException(status_code=422, detail="Duplicate IDs in sub_items_to_remove")
+    
+    overlap = set(edit_ids) & set(remove_ids)
+    if overlap:
+        raise ProblemHTTPException(
+            status_code=422, 
+            detail=f"Sub-item IDs cannot be both edited and removed: {list(overlap)}"
+        )
 
+    # 2. Lock and fetch matrix with all sub-items
     result = await db.execute(
         select(CompetencyMatrix)
         .where(CompetencyMatrix.specialist_id == specialist_id)
@@ -465,9 +476,18 @@ async def approve_matrix(
     matrix = result.scalar_one_or_none()
     if matrix is None:
         raise _matrix_not_found(instance)
+    
+    # 3. Authorization check (inside lock)
+    if current_user.role == UserRole.CM:
+        owner_result = await db.execute(select(User).where(User.id == specialist_id))
+        owner = owner_result.scalar_one_or_none()
+        if owner is None or owner.cm_id != current_user.id:
+            raise _matrix_not_found(instance)
+
     if matrix.status != MatrixStatus.PENDING_APPROVAL:
         raise _matrix_not_pending_approval(instance)
 
+    # 4. Build sub-item lookup and validate ownership
     sub_item_map: dict[UUID, CompetencySubItem] = {
         si.id: si
         for cat in matrix.categories
@@ -478,10 +498,19 @@ async def approve_matrix(
     for edit in request.sub_item_edits:
         if edit.id not in valid_ids:
             raise _sub_item_not_found(instance)
+        # Validation Decision 1-B: Return 422 instead of silent truncation
+        if not edit.name.strip():
+            raise ProblemHTTPException(status_code=422, detail="Sub-item name cannot be empty")
+        if len(edit.name) > 255:
+            raise ProblemHTTPException(status_code=422, detail=f"Sub-item name exceeds 255 chars: {edit.id}")
+        if edit.description and len(edit.description) > 1000:
+            raise ProblemHTTPException(status_code=422, detail=f"Sub-item description exceeds 1000 chars: {edit.id}")
+
     for removal_id in request.sub_items_to_remove:
         if removal_id not in valid_ids:
             raise _sub_item_not_found(instance)
 
+    # 5. Apply edits — track changes for audit log
     applied_edits = []
     for edit in request.sub_item_edits:
         si = sub_item_map[edit.id]
@@ -489,19 +518,38 @@ async def approve_matrix(
             applied_edits.append({
                 "id": str(edit.id),
                 "name_before": si.name,
-                "name_after": edit.name[:255],
+                "name_after": edit.name,
                 "description_before": si.description,
-                "description_after": edit.description[:1000],
+                "description_after": edit.description,
             })
-            si.name = edit.name[:255]
-            si.description = edit.description[:1000]
+            si.name = edit.name
+            si.description = edit.description
 
+    # 6. Apply removals — track for audit log, then hard delete
     applied_removals = []
+    affected_categories = set()
     for removal_id in request.sub_items_to_remove:
         si = sub_item_map[removal_id]
         applied_removals.append({"id": str(removal_id), "name": si.name})
+        affected_categories.add(si.category_id)
         await db.delete(si)
 
+    # 7. Re-sequence order (Decision 2-B)
+    if affected_categories:
+        await db.flush() # Ensure deletes are processed
+        for cat in matrix.categories:
+            if cat.id in affected_categories:
+                # Refresh items to exclude deleted ones
+                items_result = await db.execute(
+                    select(CompetencySubItem)
+                    .where(CompetencySubItem.category_id == cat.id)
+                    .order_by(CompetencySubItem.order)
+                )
+                remaining_items = items_result.scalars().all()
+                for i, item in enumerate(remaining_items):
+                    item.order = i
+
+    # 8. Write audit log + update status
     matrix.status = MatrixStatus.APPROVED
     matrix.approved_by_id = current_user.id
     matrix.approved_at = datetime.now(timezone.utc)
@@ -510,7 +558,7 @@ async def approve_matrix(
         "removals": applied_removals,
     }
 
-    await _load_specialist(specialist_id, db, instance)
+    # 9. Notify specialist
     notification = Notification(
         user_id=specialist_id,
         type=NotificationType.MATRIX_APPROVED,
