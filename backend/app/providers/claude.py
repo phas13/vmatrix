@@ -5,7 +5,16 @@ import anthropic
 
 from app.core.config import settings
 from app.core.exceptions import LLMUnavailableError
-from app.providers.base import CategoryDraft, MatrixGenerationContext, SubItemDraft
+from app.providers.base import (
+    AssessmentQuestionDraft,
+    CategoryDraft,
+    MatrixGenerationContext,
+    QuestionFeedback,
+    QuestionGenerationContext,
+    ResponseEvaluationContext,
+    SessionEvaluationResult,
+    SubItemDraft,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +50,53 @@ _MATRIX_TOOL = {
             }
         },
         "required": ["categories"],
+    },
+}
+
+_QUESTIONS_TOOL = {
+    "name": "return_assessment_questions",
+    "description": "Return the generated assessment questions as structured data",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "questions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "text": {"type": "string"},
+                        "question_type": {"type": "string", "enum": ["theoretical", "practical"]},
+                    },
+                    "required": ["text", "question_type"],
+                },
+            }
+        },
+        "required": ["questions"],
+    },
+}
+
+_EVALUATION_TOOL = {
+    "name": "return_evaluation_result",
+    "description": "Return the evaluation result as structured data",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "score": {"type": "integer", "minimum": 0, "maximum": 100},
+            "strengths": {"type": "string"},
+            "areas_for_growth": {"type": "string"},
+            "per_question_feedback": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question_order": {"type": "integer"},
+                        "commentary": {"type": "string"},
+                    },
+                    "required": ["question_order", "commentary"],
+                },
+            },
+        },
+        "required": ["score", "strengths", "areas_for_growth", "per_question_feedback"],
     },
 }
 
@@ -143,11 +199,107 @@ class ClaudeProvider:
 
         return categories, latency_ms, tokens_used
 
-    async def generate_questions(self, context) -> list:
-        raise NotImplementedError("Implemented in Story 4.1")
+    async def generate_questions(
+        self, context: QuestionGenerationContext
+    ) -> tuple[list[AssessmentQuestionDraft], int, int]:
+        from app.services.prompt_builder import build_question_generation_prompt
 
-    async def evaluate_responses(self, context) -> object:
-        raise NotImplementedError("Implemented in Story 4.3")
+        prompt = build_question_generation_prompt(context)
+        start = time.monotonic()
+        try:
+            response = await self._client.messages.create(
+                model=settings.LLM_MODEL,
+                max_tokens=4096,
+                tools=[_QUESTIONS_TOOL],
+                tool_choice={"type": "tool", "name": "return_assessment_questions"},
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception as exc:
+            logger.error("Claude API failure during question generation: %s", exc)
+            raise LLMUnavailableError(str(exc)) from exc
+
+        latency_ms = int((time.monotonic() - start) * 1000)
+        usage = getattr(response, "usage", None)
+        tokens_used = (
+            (getattr(usage, "input_tokens", 0) or 0)
+            + (getattr(usage, "output_tokens", 0) or 0)
+        )
+
+        try:
+            tool_block = next((b for b in response.content if b.type == "tool_use"), None)
+            if tool_block is None:
+                raise LLMUnavailableError("Claude returned no tool_use block for question generation")
+            raw = tool_block.input
+            raw_questions = raw.get("questions") or []
+            if not isinstance(raw_questions, list) or len(raw_questions) == 0:
+                raise LLMUnavailableError("Claude returned no questions")
+            questions = [
+                AssessmentQuestionDraft(
+                    text=q["text"],
+                    question_type=q["question_type"],
+                    order=i,
+                )
+                for i, q in enumerate(raw_questions)
+            ]
+        except LLMUnavailableError:
+            raise
+        except Exception as exc:
+            logger.error("Claude response parsing failure (questions): %s", exc)
+            raise LLMUnavailableError(f"Malformed Claude response: {exc}") from exc
+
+        return questions, latency_ms, tokens_used
+
+    async def evaluate_responses(
+        self, context: ResponseEvaluationContext
+    ) -> tuple[SessionEvaluationResult, int, int]:
+        from app.services.prompt_builder import build_response_evaluation_prompt
+
+        prompt = build_response_evaluation_prompt(context)
+        start = time.monotonic()
+        try:
+            response = await self._client.messages.create(
+                model=settings.LLM_MODEL,
+                max_tokens=4096,
+                tools=[_EVALUATION_TOOL],
+                tool_choice={"type": "tool", "name": "return_evaluation_result"},
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception as exc:
+            logger.error("Claude API failure during response evaluation: %s", exc)
+            raise LLMUnavailableError(str(exc)) from exc
+
+        latency_ms = int((time.monotonic() - start) * 1000)
+        usage = getattr(response, "usage", None)
+        tokens_used = (
+            (getattr(usage, "input_tokens", 0) or 0)
+            + (getattr(usage, "output_tokens", 0) or 0)
+        )
+
+        try:
+            tool_block = next((b for b in response.content if b.type == "tool_use"), None)
+            if tool_block is None:
+                raise LLMUnavailableError("Claude returned no tool_use block for evaluation")
+            raw = tool_block.input
+            feedbacks = [
+                QuestionFeedback(
+                    question_order=fb["question_order"],
+                    commentary=fb["commentary"],
+                )
+                for fb in (raw.get("per_question_feedback") or [])
+            ]
+            result = SessionEvaluationResult(
+                score=int(raw["score"]),
+                strengths=raw["strengths"],
+                areas_for_growth=raw["areas_for_growth"],
+                per_question_feedback=feedbacks,
+            )
+        except LLMUnavailableError:
+            raise
+        except Exception as exc:
+            logger.error("Claude response parsing failure (evaluation): %s", exc)
+            raise LLMUnavailableError(f"Malformed Claude response: {exc}") from exc
+
+        return result, latency_ms, tokens_used
 
     async def propose_matrix_updates(self, context) -> list:
         raise NotImplementedError("Implemented in Story 7.1")

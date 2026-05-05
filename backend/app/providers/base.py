@@ -23,14 +23,77 @@ class MatrixGenerationContext:
     domain: str
 
 
+# Story 4.1 — Assessment contexts
+
+@dataclass
+class SubItemInfo:
+    name: str
+    description: str
+
+
+@dataclass
+class QuestionGenerationContext:
+    specialist_id: UUID
+    category_name: str
+    category_description: str
+    sub_items: list[SubItemInfo]
+    level: str          # "junior" | "middle" | "senior"
+    num_questions: int  # target count (e.g. 8)
+
+
+@dataclass
+class AssessmentQuestionDraft:
+    text: str
+    question_type: str  # "theoretical" | "practical"
+    order: int
+
+
+@dataclass
+class QuestionFeedback:
+    question_order: int
+    commentary: str     # AI comment on this specific answer
+
+
+@dataclass
+class QAEntry:
+    question_text: str
+    question_type: str
+    response_text: str  # plain text (decrypted before passing to LLM)
+    order: int
+
+
+@dataclass
+class ResponseEvaluationContext:
+    specialist_id: UUID
+    category_name: str
+    level: str
+    qa_entries: list[QAEntry]
+
+
+@dataclass
+class SessionEvaluationResult:
+    score: int                          # 0-100
+    strengths: str
+    areas_for_growth: str
+    per_question_feedback: list[QuestionFeedback]
+
+
 class LLMProvider(Protocol):
     async def generate_initial_matrix(
         self, context: MatrixGenerationContext
     ) -> tuple[list[CategoryDraft], int, int]: ...
 
-    # Implemented in Epic 4 (Story 4.1)
-    async def generate_questions(self, context) -> list: ...
-    async def evaluate_responses(self, context) -> object: ...
+    async def generate_questions(
+        self, context: QuestionGenerationContext
+    ) -> tuple[list[AssessmentQuestionDraft], int, int]:
+        """Returns (questions, latency_ms, tokens_used)."""
+        ...
 
-    # Implemented in Epic 7 (Story 7.1)
+    async def evaluate_responses(
+        self, context: ResponseEvaluationContext
+    ) -> tuple[SessionEvaluationResult, int, int]:
+        """Returns (result, latency_ms, tokens_used)."""
+        ...
+
+    # Story 7.1
     async def propose_matrix_updates(self, context) -> list: ...
