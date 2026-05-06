@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.exceptions import LLMUnavailableError, ProblemHTTPException
-from app.core.security import encrypt_field
+from app.core.security import decrypt_field, encrypt_field
 from app.models.llm_call_log import LLMCallLog, LLMOperation
 from app.models.matrix import CompetencyCategory, CompetencyMatrix, MatrixStatus
 from app.models.session import AssessmentQuestion, AssessmentResponse, AssessmentSession, SessionStatus
@@ -301,16 +301,28 @@ async def get_session(
     current_user: User,
     instance: str,
 ) -> AssessmentSession:
+    # Specialists can only see their own sessions. CMs and Admins can see any.
     result = await db.execute(
         select(AssessmentSession)
         .where(AssessmentSession.id == session_id)
-        .options(selectinload(AssessmentSession.questions))
+        .options(
+            selectinload(AssessmentSession.questions),
+            selectinload(AssessmentSession.responses),
+        )
     )
     session = result.scalar_one_or_none()
     if session is None:
         raise _session_not_found(instance)
-    if session.specialist_id != current_user.id:
-        raise _session_not_found(instance)  # 404 not 403 — do not reveal existence
+
+    # Authorization check
+    if current_user.role == "specialist" and session.specialist_id != current_user.id:
+        raise _session_not_found(instance)
+
+    # Decrypt responses if any
+    for resp in session.responses:
+        if resp.response_text:
+            resp.response_text = decrypt_field(resp.response_text)
+
     return session
 
 

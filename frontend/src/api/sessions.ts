@@ -30,7 +30,11 @@ export async function createSessionStream(
     throw Object.assign(new Error('Session creation failed'), { response, data: err })
   }
 
-  const reader = response.body!.getReader()
+  if (!response.body) {
+    throw new Error('Response body is empty')
+  }
+
+  const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   let sessionId = ''
@@ -38,28 +42,46 @@ export async function createSessionStream(
   let level = ''
   let totalQuestions = 0
   const questions: AssessmentQuestion[] = []
+  let isDone = false
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const raw = JSON.parse(line.slice(6)) as Record<string, unknown>
-      const event = transformKeys(raw) as Record<string, unknown>
-      if (event['type'] === 'session') {
-        sessionId = event['sessionId'] as string
-        categoryName = event['categoryName'] as string
-        level = event['level'] as string
-        totalQuestions = event['totalQuestions'] as number
-      } else if (event['type'] === 'question') {
-        const q = event as unknown as AssessmentQuestion
-        questions.push(q)
-        onQuestion?.(q, questions.length - 1, totalQuestions)
+  try {
+    while (!isDone) {
+      const { done, value } = await reader.read()
+      if (done) break
+      
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || !trimmed.startsWith('data: ')) continue
+        
+        try {
+          const raw = JSON.parse(trimmed.slice(6)) as Record<string, unknown>
+          const event = transformKeys(raw) as Record<string, unknown>
+          
+          if (event['type'] === 'session') {
+            sessionId = event['sessionId'] as string
+            categoryName = event['categoryName'] as string
+            level = event['level'] as string
+            totalQuestions = event['totalQuestions'] as number
+          } else if (event['type'] === 'question') {
+            const q = event as unknown as AssessmentQuestion
+            questions.push(q)
+            onQuestion?.(q, questions.length - 1, totalQuestions)
+          } else if (event['type'] === 'done') {
+            isDone = true
+            break
+          }
+        } catch (e) {
+          console.warn('Failed to parse SSE event:', e, trimmed)
+          // Continue to next line
+        }
       }
     }
+  } finally {
+    reader.releaseLock()
   }
 
   return { sessionId, categoryName, level, totalQuestions, questions }

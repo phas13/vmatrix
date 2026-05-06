@@ -254,7 +254,7 @@ export default function MatrixPage() {
               <strong>{t('session.confirmCategory')}:</strong> {confirmCategory?.name}
             </Typography>
             <Typography variant="body2">
-              <strong>{t('session.confirmLevel')}:</strong> {user?.specialistLevel ?? '—'}
+              <strong>{t('session.confirmLevel')}:</strong> {user?.specialistLevel ? t(`admin.users.levels.${user.specialistLevel}`) : '—'}
             </Typography>
             <Typography variant="body2">
               {t('session.confirmEstimate', {

@@ -40,9 +40,11 @@ export default function SessionPage() {
     if (sessionData) {
       const sorted = [...sessionData.questions].sort((a, b) => a.order - b.order)
       setQuestions(sorted)
+      // Sync current index based on persisted responses
+      setCurrentQuestionIndex(sessionData.responses.length)
       setPageState('active')
     }
-  }, [sessionData])
+  }, [sessionData, setCurrentQuestionIndex])
 
   useEffect(() => {
     if (isError) setPageState('error')
@@ -64,6 +66,21 @@ export default function SessionPage() {
       }
     },
   })
+
+  async function handleSaveAndPause() {
+    const currentQuestion = questions[currentQuestionIndex]
+    const draft = answers[currentQuestion?.id] ?? ''
+    if (currentQuestion && draft.trim()) {
+      try {
+        await submitMutation.mutateAsync({ qId: currentQuestion.id, text: draft })
+      } catch (err) {
+        // Even if submission fails, we still navigate away to respect user intent to pause,
+        // but the draft remains in local store (sessionStorage) for next time.
+        console.error('Failed to auto-save draft on pause:', err)
+      }
+    }
+    navigate('/specialist/matrix')
+  }
 
   if (pageState === 'loading' && isLoading) {
     return (
@@ -114,7 +131,7 @@ export default function SessionPage() {
         submitError={submitMutation.isError ? t('common.genericError') : null}
         onAnswerChange={(text) => setAnswer(currentQuestion.id, text)}
         onSubmit={(text) => submitMutation.mutate({ qId: currentQuestion.id, text })}
-        onSaveAndPause={() => navigate('/specialist/matrix')}
+        onSaveAndPause={handleSaveAndPause}
       />
     )
   }

@@ -23,7 +23,7 @@ export default function AssessmentSessionView({
   const { t } = useTranslation()
   const theme = useTheme()
 
-  const progress = (questionIndex / totalQuestions) * 100
+  const progress = ((questionIndex + 1) / totalQuestions) * 100
 
   return (
     <Box

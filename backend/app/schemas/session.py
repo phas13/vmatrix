@@ -24,6 +24,17 @@ class QuestionRead(BaseModel):
     updated_at: datetime
 
 
+class ResponseRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    session_id: UUID
+    question_id: UUID
+    response_text: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class SessionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
