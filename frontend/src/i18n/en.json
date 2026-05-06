@@ -132,6 +132,26 @@
       "discardChanges": "Discard changes"
     }
   },
+  "session": {
+    "confirmTitle": "Start Assessment",
+    "confirmCategory": "Category",
+    "confirmLevel": "Level",
+    "confirmEstimate": "~{{minutes}} minutes, {{questions}} questions",
+    "confirmStart": "Start Assessment",
+    "cancel": "Cancel",
+    "questionProgress": "Question {{current}} of {{total}}",
+    "saveAndPause": "Save & pause",
+    "answerLabel": "Your answer",
+    "submitAnswer": "Submit answer",
+    "questionType": {
+      "theoretical": "Theoretical",
+      "practical": "Practical"
+    },
+    "backToMatrix": "Back to Matrix",
+    "startError": "Failed to start session. Please try again.",
+    "allAnswered": "Processing your answers…",
+    "resumePrompt": "You have a session in progress. Resume?"
+  },
   "notifications": {
     "types": {
       "credential_reset": "Your credentials have been reset by an administrator.",

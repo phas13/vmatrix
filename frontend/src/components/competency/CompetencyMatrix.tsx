@@ -10,6 +10,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined'
 import FlagIcon from '@mui/icons-material/Flag'
 import FlagOutlinedIcon from '@mui/icons-material/FlagOutlined'
+import AssessmentIcon from '@mui/icons-material/Assessment'
 import { useTranslation } from 'react-i18next'
 import type { CompetencyMatrixProps } from './CompetencyMatrix.types'
 
@@ -18,6 +19,7 @@ export default function CompetencyMatrix({
   variant,
   onFlag,
   onUnflag,
+  onStartAssessment,
   disabled,
   onEditSubItem,
   onRemoveSubItem,
@@ -93,6 +95,20 @@ export default function CompetencyMatrix({
               <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
                 {t('matrix.itemCount', { count: cat.subItems.length })}
               </Typography>
+              {onStartAssessment && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<AssessmentIcon />}
+                  sx={{ mr: 1, flexShrink: 0 }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onStartAssessment(cat.id, cat.name)
+                  }}
+                >
+                  {t('session.confirmStart')}
+                </Button>
+              )}
               {isExpanded ? <ExpandLessIcon aria-hidden /> : <ExpandMoreIcon aria-hidden />}
             </ButtonBase>
 

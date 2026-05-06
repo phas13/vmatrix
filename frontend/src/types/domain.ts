@@ -40,9 +40,26 @@ export interface CompetencyMatrix {
 export interface AssessmentSession {
   id: string
   specialistId: string
-  matrixId: string
-  status: string
-  score: number | null
+  categoryId: string
+  status: 'IN_PROGRESS' | 'EVALUATION_PENDING' | 'COMPLETED' | 'ABANDONED'
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AssessmentQuestion {
+  id: string
+  sessionId: string
+  text: string
+  questionType: 'theoretical' | 'practical'
+  order: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AssessmentResponse {
+  id: string
+  sessionId: string
+  questionId: string
   createdAt: string
   updatedAt: string
 }

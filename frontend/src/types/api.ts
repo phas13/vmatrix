@@ -27,3 +27,11 @@ export interface LoginRequest {
   email: string
   password: string
 }
+
+export interface SubmitAnswerResponse {
+  id: string
+  sessionId: string
+  questionId: string
+  createdAt: string
+  updatedAt: string
+}

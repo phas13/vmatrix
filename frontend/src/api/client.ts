@@ -22,7 +22,7 @@ export const apiClient = axios.create({
 
 const CSRF_METHODS = new Set(['post', 'put', 'patch', 'delete']);
 
-function readCsrfCookie(): string | null {
+export function readCsrfCookie(): string | null {
   const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : null;
 }

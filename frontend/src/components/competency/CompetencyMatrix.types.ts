@@ -38,6 +38,7 @@ export interface CompetencyMatrixProps {
   // specialist variant
   onFlag?: (subItemId: string, note: string) => void
   onUnflag?: (subItemId: string) => void
+  onStartAssessment?: (categoryId: string, categoryName: string) => void
   disabled?: boolean
   // cm-review variant
   onEditSubItem?: (subItemId: string, name: string, description: string) => void

@@ -2,6 +2,7 @@ import { createBrowserRouter, redirect, Outlet } from 'react-router-dom';
 import { getMe } from './api/auth';
 import PublicLayout from './layouts/PublicLayout';
 import SpecialistLayout from './layouts/SpecialistLayout';
+import FullScreenLayout from './layouts/FullScreenLayout';
 import CMLayout from './layouts/CMLayout';
 import HRLayout from './layouts/HRLayout';
 import AdminLayout from './layouts/AdminLayout';
@@ -10,6 +11,7 @@ import PlaceholderPage from './pages/PlaceholderPage';
 import UsersPage from './pages/admin/UsersPage';
 import SettingsPage from './pages/admin/SettingsPage';
 import MatrixPage from './pages/specialist/MatrixPage'
+import SessionPage from './pages/specialist/SessionPage'
 import CMDashboardPage from './pages/cm/DashboardPage'
 import MatrixReviewPage from './pages/cm/MatrixReviewPage';
 
@@ -51,11 +53,21 @@ export const router = createBrowserRouter([
   {
     path: '/specialist',
     loader: requireRole('specialist'),
-    element: <SpecialistLayout />,
     children: [
-      { path: 'dashboard', element: <PlaceholderPage title="Specialist Dashboard" /> },
-      { path: 'matrix', element: <MatrixPage /> },
-      { path: 'history', element: <PlaceholderPage title="Assessment History" /> },
+      {
+        element: <SpecialistLayout />,
+        children: [
+          { path: 'dashboard', element: <PlaceholderPage title="Specialist Dashboard" /> },
+          { path: 'matrix', element: <MatrixPage /> },
+          { path: 'history', element: <PlaceholderPage title="Assessment History" /> },
+        ],
+      },
+      {
+        element: <FullScreenLayout />,
+        children: [
+          { path: 'session/:sessionId', element: <SessionPage /> },
+        ],
+      },
     ],
   },
   {

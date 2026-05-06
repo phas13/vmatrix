@@ -134,6 +134,26 @@
       "discardChanges": "Скасувати зміни"
     }
   },
+  "session": {
+    "confirmTitle": "Розпочати оцінювання",
+    "confirmCategory": "Категорія",
+    "confirmLevel": "Рівень",
+    "confirmEstimate": "~{{minutes}} хвилин, {{questions}} питань",
+    "confirmStart": "Розпочати оцінювання",
+    "cancel": "Скасувати",
+    "questionProgress": "Питання {{current}} з {{total}}",
+    "saveAndPause": "Зберегти і призупинити",
+    "answerLabel": "Ваша відповідь",
+    "submitAnswer": "Надіслати відповідь",
+    "questionType": {
+      "theoretical": "Теоретичне",
+      "practical": "Практичне"
+    },
+    "backToMatrix": "До матриці",
+    "startError": "Не вдалося розпочати оцінювання. Спробуйте ще раз.",
+    "allAnswered": "Обробка ваших відповідей…",
+    "resumePrompt": "У вас є незавершене оцінювання. Продовжити?"
+  },
   "notifications": {
     "types": {
       "credential_reset": "Ваші облікові дані були скинуті адміністратором.",

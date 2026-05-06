@@ -30,7 +30,7 @@ export default function NotificationGuard({ children }: { children: React.ReactN
     }
   }, [notifications, open]);
 
-  const handleClose = async (event?: React.SyntheticEvent | Event, reason?: string) => {
+  const handleClose = async (_event?: React.SyntheticEvent | Event, reason?: string) => {
     if (reason === 'clickaway') return;
     
     if (current) {

@@ -1,19 +1,35 @@
-import { useEffect, useRef } from 'react'
-import { Alert, Box, Button, Chip, Skeleton, Typography } from '@mui/material'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import {
+  Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
+  Skeleton, Typography,
+} from '@mui/material'
+import AssessmentIcon from '@mui/icons-material/Assessment'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { getMatrix, generateMatrix, flagSubItem, unflagSubItem, submitMatrix } from '../../api/matrix'
+import { createSessionStream } from '../../api/sessions'
 import CompetencyMatrix from '../../components/competency/CompetencyMatrix'
 import { useAuth } from '../../hooks/useAuth'
+import { useSessionStore } from '../../store/sessionStore'
 
 type AxiosLikeError = { response?: { status?: number } }
+
+const MAX_QUESTIONS = 10
 
 export default function MatrixPage() {
   const { t } = useTranslation()
   const { user } = useAuth()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const specialistId = user?.id ?? ''
   const autoTriggeredRef = useRef(false)
+
+  const { setActiveSessionId, reset } = useSessionStore()
+
+  const [confirmCategory, setConfirmCategory] = useState<{ id: string; name: string } | null>(null)
+  const [isStartingSession, setIsStartingSession] = useState(false)
+  const [sessionStartError, setSessionStartError] = useState<string | null>(null)
 
   const {
     data: matrix,
@@ -70,6 +86,23 @@ export default function MatrixPage() {
       generateMutation.mutate()
     }
   }, [fetchError, specialistId])
+
+  async function handleStartSession() {
+    if (!confirmCategory) return
+    setIsStartingSession(true)
+    setSessionStartError(null)
+    try {
+      reset()
+      const result = await createSessionStream(confirmCategory.id)
+      setActiveSessionId(result.sessionId)
+      setConfirmCategory(null)
+      navigate(`/specialist/session/${result.sessionId}`)
+    } catch {
+      setSessionStartError(t('session.startError'))
+    } finally {
+      setIsStartingSession(false)
+    }
+  }
 
   const fetchAxiosError = fetchError as AxiosLikeError | null
   const isFetchErrorNon404 =
@@ -203,9 +236,51 @@ export default function MatrixPage() {
                 ? (subItemId) => unflagMutation.mutate(subItemId)
                 : undefined
             }
+            onStartAssessment={
+              displayMatrix.status === 'APPROVED'
+                ? (categoryId, categoryName) => setConfirmCategory({ id: categoryId, name: categoryName })
+                : undefined
+            }
           />
         </>
       )}
+
+      {/* Confirmation dialog */}
+      <Dialog open={!!confirmCategory} onClose={() => !isStartingSession && setConfirmCategory(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{t('session.confirmTitle')}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, pt: 1 }}>
+            <Typography variant="body2">
+              <strong>{t('session.confirmCategory')}:</strong> {confirmCategory?.name}
+            </Typography>
+            <Typography variant="body2">
+              <strong>{t('session.confirmLevel')}:</strong> {user?.specialistLevel ?? '—'}
+            </Typography>
+            <Typography variant="body2">
+              {t('session.confirmEstimate', {
+                minutes: MAX_QUESTIONS * 2,
+                questions: MAX_QUESTIONS,
+              })}
+            </Typography>
+            {sessionStartError && (
+              <Alert severity="error" sx={{ mt: 1 }}>{sessionStartError}</Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmCategory(null)} disabled={isStartingSession}>
+            {t('session.cancel')}
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AssessmentIcon />}
+            onClick={handleStartSession}
+            disabled={isStartingSession}
+          >
+            {isStartingSession ? t('common.loading') : t('session.confirmStart')}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
