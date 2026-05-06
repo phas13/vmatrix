@@ -104,11 +104,25 @@ _EVALUATION_TOOL = {
 class ClaudeProvider:
     def __init__(self) -> None:
         self._client = anthropic.AsyncAnthropic(
-            api_key=settings.ANTHROPIC_API_KEY,
-            timeout=settings.LLM_TIMEOUT_SECONDS,
+            api_key=settings.ANTHROPIC_API_KEY, timeout=settings.LLM_TIMEOUT_SECONDS
         )
 
+    async def health_check(self) -> None:
+        """Verifies connectivity to Anthropic API with a minimal token request."""
+        try:
+            # We use a very small max_tokens call to check if the API is responsive.
+            # This detects both config issues and network/service outages.
+            await self._client.messages.create(
+                model=settings.LLM_MODEL,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "health check"}],
+            )
+        except Exception as exc:
+            logger.error("Claude health check failed: %s", exc)
+            raise LLMUnavailableError(str(exc)) from exc
+
     async def generate_initial_matrix(
+
         self, context: MatrixGenerationContext
     ) -> tuple[list[CategoryDraft], int, int]:
         """

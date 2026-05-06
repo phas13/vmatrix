@@ -9,6 +9,9 @@ from app.providers.base import (
 
 
 class GeminiProvider:
+    async def health_check(self) -> None:
+        raise NotImplementedError("Gemini health check not yet implemented")
+
     async def generate_initial_matrix(
         self, context: MatrixGenerationContext
     ) -> tuple[list[CategoryDraft], int, int]:

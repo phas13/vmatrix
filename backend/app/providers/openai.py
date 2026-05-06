@@ -9,6 +9,9 @@ from app.providers.base import (
 
 
 class OpenAIProvider:
+    async def health_check(self) -> None:
+        raise NotImplementedError("OpenAI health check not yet implemented")
+
     async def generate_initial_matrix(
         self, context: MatrixGenerationContext
     ) -> tuple[list[CategoryDraft], int, int]:

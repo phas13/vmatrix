@@ -58,7 +58,7 @@ class QuestionFeedback:
 class QAEntry:
     question_text: str
     question_type: str
-    response_text: str  # plain text (decrypted before passing to LLM)
+    response_text: str | None  # plain text (decrypted before passing to LLM)
     order: int
 
 
@@ -79,6 +79,12 @@ class SessionEvaluationResult:
 
 
 class LLMProvider(Protocol):
+    async def health_check(self) -> None:
+        """Verifies connectivity to the LLM provider.
+        Raises LLMUnavailableError if unreachable.
+        """
+        ...
+
     async def generate_initial_matrix(
         self, context: MatrixGenerationContext
     ) -> tuple[list[CategoryDraft], int, int]: ...

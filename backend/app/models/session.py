@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -68,6 +68,10 @@ class AssessmentResponse(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     ai_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)     # Fernet-encrypted
     session: Mapped["AssessmentSession"] = relationship(back_populates="responses")
 
+    __table_args__ = (
+        UniqueConstraint("session_id", "question_id", name="uq_responses_session_question"),
+    )
+
 
 class SessionDispute(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "session_disputes"
@@ -108,3 +112,7 @@ class SpecialistScore(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # 0-100
     last_assessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("specialist_id", "category_id", name="uq_specialist_scores_spec_cat"),
+    )

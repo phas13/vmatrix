@@ -56,6 +56,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["session_id"], ["assessment_sessions.id"], ondelete="RESTRICT"),
         sa.ForeignKeyConstraint(["question_id"], ["assessment_questions.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("session_id", "question_id", name="uq_responses_session_question"),
     )
     op.create_index("ix_responses_session_id", "assessment_responses", ["session_id"])
     op.create_index("ix_responses_question_id", "assessment_responses", ["question_id"])
@@ -92,6 +93,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["specialist_id"], ["users.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["category_id"], ["competency_categories.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("specialist_id", "category_id", name="uq_specialist_scores_spec_cat"),
     )
     op.create_index("ix_specialist_scores_specialist_id", "specialist_scores", ["specialist_id"])
     op.create_index("ix_specialist_scores_category_id", "specialist_scores", ["category_id"])

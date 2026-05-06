@@ -3,7 +3,10 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ProblemHTTPException
+from app.core.exceptions import LLMUnavailableError, ProblemHTTPException
+from app.models.session import (
+    AssessmentSession,
+)
 from app.models.user import User
 from app.providers.factory import get_llm_provider
 
@@ -45,12 +48,17 @@ async def create_session(
     *,
     current_user: User,
     instance: str,
-) -> "AssessmentSession":  # noqa: F821
+) -> AssessmentSession:
     """
     Story 4.1: skeleton with LLM pre-flight check.
     Story 4.2: adds category validation, session creation, question generation.
     """
     # LLM pre-flight — raise 503 before touching DB if provider unreachable
-    get_llm_provider()
+    provider = get_llm_provider()
+    try:
+        await provider.health_check()
+    except LLMUnavailableError:
+        raise _llm_unavailable(instance)
+
     # Actual validation + session creation added in Story 4.2
     raise NotImplementedError("Session creation logic added in Story 4.2")

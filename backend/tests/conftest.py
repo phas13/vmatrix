@@ -21,6 +21,7 @@ def mock_llm_provider():
     """
     with patch("app.providers.factory.get_llm_provider") as mock_factory:
         provider = AsyncMock()
+        provider.health_check = AsyncMock(return_value=None)
         provider.generate_initial_matrix = AsyncMock(return_value=([], 100, 500))
         provider.generate_questions = AsyncMock(return_value=([], 200, 1000))
         provider.evaluate_responses = AsyncMock(return_value=(None, 300, 2000))
