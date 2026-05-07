@@ -159,6 +159,7 @@
     "areasForGrowth": "Areas for growth",
     "score": "Score",
     "categoryProgress": "{{category}} category score",
+    "initialAssessment": "Initial Assessment",
     "overallLevelPercentage": "Overall level progress: {{percentage}}%",
     "reviewTitle": "Session review",
     "aiCommentaryPrefix": "Based on your responses:",

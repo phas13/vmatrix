@@ -76,11 +76,18 @@ export default function AssessmentResultReveal({
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 2, mt: 1 }}>
             <Typography variant="h3" color="primary.main">{score}%</Typography>
-            {deltaLabel && (
+            {deltaLabel ? (
               <Chip
                 label={deltaLabel}
                 size="small"
                 color={scoreDelta! >= 0 ? 'success' : 'error'}
+                variant="outlined"
+              />
+            ) : (
+              <Chip
+                label={t('session.initialAssessment')}
+                size="small"
+                color="info"
                 variant="outlined"
               />
             )}

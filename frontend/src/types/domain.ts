@@ -41,9 +41,11 @@ export interface AssessmentSession {
   id: string
   specialistId: string
   categoryId: string
+  categoryName: string | null
   status: 'IN_PROGRESS' | 'EVALUATION_PENDING' | 'COMPLETED' | 'ABANDONED'
   finalScore: number | null
   previousScore: number | null
+  levelPercentage: number
   strengths: string | null
   areasForGrowth: string | null
   questions: AssessmentQuestion[]

@@ -161,6 +161,7 @@
     "areasForGrowth": "Зони росту",
     "score": "Оцінка",
     "categoryProgress": "Оцінка категорії {{category}}",
+    "initialAssessment": "Початкове оцінювання",
     "overallLevelPercentage": "Загальний прогрес рівня: {{percentage}}%",
     "reviewTitle": "Огляд сесії",
     "aiCommentaryPrefix": "На основі ваших відповідей:",

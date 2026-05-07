@@ -63,7 +63,14 @@ export default function SessionPage() {
           state: { levelPercentage: result.levelPercentage },
         })
       })
-      .catch(() => {
+      .catch((err) => {
+        // If session was already completed (e.g. parallel request or refresh during evaluation),
+        // just navigate to results.
+        if (err.response?.status === 409) {
+          reset()
+          navigate(`/specialist/session/${resolvedSessionId}/result`)
+          return
+        }
         setEvalError(t('session.evaluationError'))
         setIsEvaluating(false)
       })

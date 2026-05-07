@@ -98,9 +98,11 @@ class SessionResultRead(BaseModel):
     id: UUID
     specialist_id: UUID
     category_id: UUID
+    category_name: str | None = None
     status: SessionStatus
     final_score: int | None
     previous_score: int | None
+    level_percentage: int = 0
     strengths: str | None
     areas_for_growth: str | None
     questions: list[QuestionRead] = []

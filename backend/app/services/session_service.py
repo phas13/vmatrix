@@ -401,14 +401,25 @@ async def evaluate_session(
     provider = get_llm_provider()
     try:
         eval_result, latency_ms, tokens_used = await provider.evaluate_responses(context)
-    except LLMUnavailableError as exc:
+    except Exception as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
         llm_log.latency_ms = latency_ms
         llm_log.error = str(exc)
         session.status = SessionStatus.EVALUATION_PENDING
         db.add(llm_log)
         await db.commit()
-        raise _llm_unavailable(instance)
+        if isinstance(exc, LLMUnavailableError):
+            raise _llm_unavailable(instance)
+        raise ProblemHTTPException(
+            status_code=500,
+            detail={
+                "type": "https://vmatrix.app/errors/evaluation-failed",
+                "title": "Evaluation failed",
+                "status": 500,
+                "detail": f"An unexpected error occurred during evaluation: {str(exc)}",
+                "instance": instance,
+            },
+        )
 
     llm_log.latency_ms = latency_ms
     llm_log.tokens_used = tokens_used
@@ -419,8 +430,7 @@ async def evaluate_session(
         resp = response_map.get(q.id)
         if resp:
             fb = feedback_by_order.get(q.order)
-            if fb:
-                resp.ai_rationale = encrypt_field(fb.commentary)
+            resp.ai_rationale = encrypt_field(fb.commentary if fb else "No feedback provided")
 
     # 8. Get previous score before upsert
     prev_score_result = await db.execute(
@@ -445,18 +455,18 @@ async def evaluate_session(
             last_assessed_at=now,
         ))
 
-    # 10. Update session — atomic with SpecialistScore upsert
+    # 10. Calculate level percentage BEFORE commit
+    from app.services.level_service import calculate_percentage
+    level_percentage = await calculate_percentage(current_user.id, db)
+
+    # 11. Update session — atomic with SpecialistScore upsert
     session.status = SessionStatus.COMPLETED
     session.final_score = eval_result.score
     session.previous_score = previous_score
-    session.strengths = encrypt_field(eval_result.strengths)
-    session.areas_for_growth = encrypt_field(eval_result.areas_for_growth)
+    session.strengths = encrypt_field(eval_result.strengths or "")
+    session.areas_for_growth = encrypt_field(eval_result.areas_for_growth or "")
     db.add(llm_log)
     await db.commit()
-
-    # 11. Calculate level percentage (read-only, safe after commit)
-    from app.services.level_service import calculate_percentage
-    level_percentage = await calculate_percentage(current_user.id, db)
 
     return {
         "session_id": session.id,
@@ -492,6 +502,16 @@ async def get_session(
     # Authorization check
     if current_user.role == "specialist" and session.specialist_id != current_user.id:
         raise _session_not_found(instance)
+
+    # Load category name
+    cat_result = await db.execute(
+        select(CompetencyCategory.name).where(CompetencyCategory.id == session.category_id)
+    )
+    session.category_name = cat_result.scalar()
+
+    # Calculate level percentage
+    from app.services.level_service import calculate_percentage
+    session.level_percentage = await calculate_percentage(session.specialist_id, db)
 
     # Decrypt encrypted fields
     for resp in session.responses:

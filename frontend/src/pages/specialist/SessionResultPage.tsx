@@ -1,4 +1,4 @@
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Alert, Box, Button, CircularProgress, Divider, Paper, Typography } from '@mui/material'
@@ -7,21 +7,14 @@ import { getSession } from '../../api/sessions'
 import AssessmentResultReveal from '../../components/session/AssessmentResultReveal'
 import { useSessionStore } from '../../store/sessionStore'
 
-interface LocationState {
-  levelPercentage?: number
-}
-
 export default function SessionResultPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
   const { t } = useTranslation()
   const theme = useTheme()
-  const location = useLocation()
   const { activeSessionId } = useSessionStore()
 
   const resolvedSessionId = sessionId ?? activeSessionId ?? ''
-  const locationState = (location.state ?? {}) as LocationState
-  const levelPercentage = locationState.levelPercentage ?? 0
 
   const { data: session, isLoading, isError } = useQuery({
     queryKey: ['sessions', resolvedSessionId],
@@ -60,8 +53,8 @@ export default function SessionResultPage() {
           previousScore={session.previousScore}
           strengths={session.strengths}
           areasForGrowth={session.areasForGrowth}
-          categoryName={''}
-          levelPercentage={levelPercentage}
+          categoryName={session.categoryName ?? ''}
+          levelPercentage={session.levelPercentage}
         />
       )}
 
