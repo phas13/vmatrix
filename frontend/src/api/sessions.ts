@@ -1,6 +1,6 @@
 import { apiClient, transformKeys, readCsrfCookie } from './client'
 import type { AssessmentSession, AssessmentQuestion } from '../types/domain'
-import type { SubmitAnswerResponse } from '../types/api'
+import type { EvaluateSessionResponse, SubmitAnswerResponse } from '../types/api'
 
 export interface SessionStreamResult {
   sessionId: string
@@ -87,9 +87,17 @@ export async function createSessionStream(
   return { sessionId, categoryName, level, totalQuestions, questions }
 }
 
-export async function getSession(sessionId: string): Promise<AssessmentSession & { questions: AssessmentQuestion[] }> {
-  const res = await apiClient.get<AssessmentSession & { questions: AssessmentQuestion[] }>(
-    `/sessions/${sessionId}`
+export async function getSession(sessionId: string): Promise<AssessmentSession> {
+  const res = await apiClient.get<AssessmentSession>(`/sessions/${sessionId}`)
+  return res.data
+}
+
+export async function evaluateSession(sessionId: string): Promise<EvaluateSessionResponse> {
+  const csrfToken = readCsrfCookie()
+  const res = await apiClient.post<EvaluateSessionResponse>(
+    `/sessions/${sessionId}/actions/evaluate`,
+    null,
+    { headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {} },
   )
   return res.data
 }

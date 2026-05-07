@@ -5,10 +5,16 @@ from uuid import uuid4
 
 import pytest
 
-from app.core.security import create_access_token, decrypt_field
+from app.core.security import create_access_token, decrypt_field, encrypt_field
 from app.db.session import get_db_session
 from app.models.matrix import CompetencyCategory, CompetencyMatrix, CompetencySubItem, MatrixStatus
-from app.models.session import AssessmentQuestion, AssessmentResponse, AssessmentSession, SessionStatus
+from app.models.session import (
+    AssessmentQuestion,
+    AssessmentResponse,
+    AssessmentSession,
+    SessionStatus,
+    SpecialistScore,
+)
 from app.models.user import SpecialistLevel, User, UserRole
 from app.providers.base import AssessmentQuestionDraft, QuestionFeedback, SessionEvaluationResult
 from main import app
@@ -609,9 +615,14 @@ async def test_get_session_returns_questions_sorted_by_order(async_client, mock_
     mock_session.specialist_id = specialist.id
     mock_session.category_id = uuid4()
     mock_session.status = SessionStatus.IN_PROGRESS
+    mock_session.final_score = None
+    mock_session.previous_score = None
+    mock_session.strengths = None
+    mock_session.areas_for_growth = None
     mock_session.created_at = _now()
     mock_session.updated_at = _now()
     mock_session.questions = [q1, q0]  # intentionally unsorted
+    mock_session.responses = []
 
     mock_db = AsyncMock()
     mock_db.commit = AsyncMock()
@@ -650,3 +661,279 @@ async def test_get_session_returns_questions_sorted_by_order(async_client, mock_
     assert len(questions) == 2
     assert questions[0]["order"] == 0
     assert questions[1]["order"] == 1
+
+
+# ─── Story 4.3: evaluate_session service unit tests ───────────────────────────
+
+def _scalars_all_result(values: list) -> MagicMock:
+    r = MagicMock()
+    scalars = MagicMock()
+    scalars.all.return_value = values
+    r.scalars.return_value = scalars
+    return r
+
+
+def _make_session_with_qa(specialist: MagicMock) -> tuple:
+    """Returns (session, question, response) mocks with one answered question."""
+    session = _make_session(specialist)
+    session.final_score = None
+    session.previous_score = None
+    session.strengths = None
+    session.areas_for_growth = None
+
+    question = MagicMock(spec=AssessmentQuestion)
+    question.id = uuid4()
+    question.session_id = session.id
+    question.text = "What is CI?"
+    question.question_type = "theoretical"
+    question.order = 0
+
+    resp = MagicMock(spec=AssessmentResponse)
+    resp.id = uuid4()
+    resp.session_id = session.id
+    resp.question_id = question.id
+    resp.response_text = encrypt_field("CI is continuous integration")
+    resp.ai_rationale = None
+
+    session.questions = [question]
+    session.responses = [resp]
+    return session, question, resp
+
+
+@pytest.mark.asyncio
+async def test_evaluate_session_success():
+    """Happy path: all answers present, LLM returns result → score/status dict returned."""
+    from unittest.mock import patch as mock_patch
+    from app.services.session_service import evaluate_session
+
+    specialist = _make_user()
+    session, question, resp = _make_session_with_qa(specialist)
+    category = _make_category(uuid4())
+
+    mock_eval_result = SessionEvaluationResult(
+        score=78,
+        strengths="Strong understanding of pipeline fundamentals.",
+        areas_for_growth="Could improve knowledge of advanced caching strategies.",
+        per_question_feedback=[QuestionFeedback(question_order=0, commentary="Good answer.")],
+    )
+
+    new_score = MagicMock(spec=SpecialistScore)
+    new_score.score = 78
+
+    _, mock_db, _ = _make_routed_db(
+        _scalar_one_or_none_result(session),    # session FOR UPDATE
+        _scalar_one_or_none_result(category),   # category lookup
+        _scalar_one_or_none_result(None),        # no prior SpecialistScore
+        _scalars_all_result([new_score]),        # calculate_percentage
+    )
+
+    mock_provider = AsyncMock()
+    mock_provider.evaluate_responses = AsyncMock(return_value=(mock_eval_result, 1200, 4000))
+
+    with mock_patch("app.services.session_service.get_llm_provider", return_value=mock_provider):
+        result = await evaluate_session(
+            session_id=session.id,
+            db=mock_db,
+            current_user=specialist,
+            instance="/api/v1/sessions/test/actions/evaluate",
+        )
+
+    assert result["final_score"] == 78
+    assert result["previous_score"] is None
+    assert result["level_percentage"] == 78
+    assert result["status"] == SessionStatus.COMPLETED
+    assert mock_db.commit.called
+    mock_provider.evaluate_responses.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_evaluate_session_llm_failure():
+    """LLM raises LLMUnavailableError → 503 exception raised, session set to EVALUATION_PENDING."""
+    from unittest.mock import patch as mock_patch
+    from app.core.exceptions import LLMUnavailableError, ProblemHTTPException
+    from app.services.session_service import evaluate_session
+
+    specialist = _make_user()
+    session, _, _ = _make_session_with_qa(specialist)
+    category = _make_category(uuid4())
+
+    _, mock_db, _ = _make_routed_db(
+        _scalar_one_or_none_result(session),
+        _scalar_one_or_none_result(category),
+    )
+
+    mock_provider = AsyncMock()
+    mock_provider.evaluate_responses = AsyncMock(
+        side_effect=LLMUnavailableError("claude timeout")
+    )
+
+    with mock_patch("app.services.session_service.get_llm_provider", return_value=mock_provider):
+        with pytest.raises(ProblemHTTPException) as exc_info:
+            await evaluate_session(
+                session_id=session.id,
+                db=mock_db,
+                current_user=specialist,
+                instance="/api/v1/sessions/test/actions/evaluate",
+            )
+
+    assert exc_info.value.status_code == 503
+    assert "llm-unavailable" in exc_info.value.detail["type"]
+    assert session.status == SessionStatus.EVALUATION_PENDING
+    assert mock_db.commit.called
+
+
+@pytest.mark.asyncio
+async def test_evaluate_session_incomplete():
+    """Not all questions answered → 422 before LLM call."""
+    from app.core.exceptions import ProblemHTTPException
+    from app.services.session_service import evaluate_session
+
+    specialist = _make_user()
+    session = _make_session(specialist)
+    session.final_score = None
+    session.previous_score = None
+
+    extra_question = MagicMock(spec=AssessmentQuestion)
+    extra_question.id = uuid4()
+    session.questions = [extra_question]
+    session.responses = []  # no answers
+
+    _, mock_db, _ = _make_routed_db(_scalar_one_or_none_result(session))
+
+    with pytest.raises(ProblemHTTPException) as exc_info:
+        await evaluate_session(
+            session_id=session.id,
+            db=mock_db,
+            current_user=specialist,
+            instance="/api/v1/sessions/test/actions/evaluate",
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "incomplete-session" in exc_info.value.detail["type"]
+    assert not mock_db.commit.called
+
+
+@pytest.mark.asyncio
+async def test_evaluate_session_already_completed():
+    """Session already COMPLETED → 409."""
+    from app.core.exceptions import ProblemHTTPException
+    from app.services.session_service import evaluate_session
+
+    specialist = _make_user()
+    session, _, _ = _make_session_with_qa(specialist)
+    session.status = SessionStatus.COMPLETED
+
+    _, mock_db, _ = _make_routed_db(_scalar_one_or_none_result(session))
+
+    with pytest.raises(ProblemHTTPException) as exc_info:
+        await evaluate_session(
+            session_id=session.id,
+            db=mock_db,
+            current_user=specialist,
+            instance="/api/v1/sessions/test/actions/evaluate",
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "session-already-evaluated" in exc_info.value.detail["type"]
+
+
+@pytest.mark.asyncio
+async def test_evaluate_session_wrong_owner():
+    """Session belongs to different specialist → 404 (information hiding)."""
+    from app.core.exceptions import ProblemHTTPException
+    from app.services.session_service import evaluate_session
+
+    specialist = _make_user()
+    other_specialist = _make_user()
+    session, _, _ = _make_session_with_qa(other_specialist)
+
+    _, mock_db, _ = _make_routed_db(_scalar_one_or_none_result(session))
+
+    with pytest.raises(ProblemHTTPException) as exc_info:
+        await evaluate_session(
+            session_id=session.id,
+            db=mock_db,
+            current_user=specialist,
+            instance="/api/v1/sessions/test/actions/evaluate",
+        )
+
+    assert exc_info.value.status_code == 404
+    assert "session-not-found" in exc_info.value.detail["type"]
+
+
+@pytest.mark.asyncio
+async def test_get_session_returns_ai_rationale(async_client, mock_llm_provider):
+    """GET /sessions/{id} returns decrypted ai_rationale in responses after evaluation."""
+    specialist = _make_user()
+    jwt = _make_jwt(specialist)
+    session_id = uuid4()
+    question_id = uuid4()
+
+    raw_rationale = "Based on your responses: Good answer."
+
+    mock_q = MagicMock(spec=AssessmentQuestion)
+    mock_q.id = question_id
+    mock_q.session_id = session_id
+    mock_q.text = "What is CI?"
+    mock_q.question_type = "theoretical"
+    mock_q.order = 0
+    mock_q.created_at = _now()
+    mock_q.updated_at = _now()
+
+    mock_resp = MagicMock(spec=AssessmentResponse)
+    mock_resp.id = uuid4()
+    mock_resp.session_id = session_id
+    mock_resp.question_id = question_id
+    mock_resp.response_text = encrypt_field("My answer")
+    mock_resp.ai_rationale = encrypt_field(raw_rationale)
+    mock_resp.created_at = _now()
+    mock_resp.updated_at = _now()
+
+    mock_session = MagicMock(spec=AssessmentSession)
+    mock_session.id = session_id
+    mock_session.specialist_id = specialist.id
+    mock_session.category_id = uuid4()
+    mock_session.status = SessionStatus.COMPLETED
+    mock_session.final_score = 78
+    mock_session.previous_score = None
+    mock_session.strengths = encrypt_field("Strong skills.")
+    mock_session.areas_for_growth = encrypt_field("Improve edge cases.")
+    mock_session.created_at = _now()
+    mock_session.updated_at = _now()
+    mock_session.questions = [mock_q]
+    mock_session.responses = [mock_resp]
+
+    mock_db = AsyncMock()
+    call_count = 0
+
+    async def execute_side_effect(*_args, **_kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _scalar_one_or_none_result(specialist)
+        if call_count == 2:
+            return _scalar_one_or_none_result(mock_session)
+        return _scalar_one_or_none_result(None)
+
+    mock_db.execute = AsyncMock(side_effect=execute_side_effect)
+
+    async def override():
+        yield mock_db
+
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        response = await async_client.get(
+            f"/api/v1/sessions/{session_id}",
+            cookies={"access_token": jwt},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["final_score"] == 78
+    assert data["strengths"] == "Strong skills."
+    assert data["areas_for_growth"] == "Improve edge cases."
+    assert len(data["responses"]) == 1
+    assert data["responses"][0]["ai_rationale"] == raw_rationale

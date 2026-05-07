@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Box, Button, CircularProgress, Typography, Alert } from '@mui/material'
-import { getSession, submitAnswer } from '../../api/sessions'
+import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material'
+import { evaluateSession, getSession, submitAnswer } from '../../api/sessions'
 import AssessmentSessionView from '../../components/session/AssessmentSessionView'
 import { useSessionStore } from '../../store/sessionStore'
 import type { AssessmentQuestion } from '../../types/domain'
@@ -22,12 +22,15 @@ export default function SessionPage() {
     answers,
     setCurrentQuestionIndex,
     setAnswer,
+    reset,
   } = useSessionStore()
 
   const resolvedSessionId = sessionId ?? activeSessionId ?? ''
 
   const [pageState, setPageState] = useState<PageState>('loading')
   const [questions, setQuestions] = useState<AssessmentQuestion[]>([])
+  const [isEvaluating, setIsEvaluating] = useState(false)
+  const [evalError, setEvalError] = useState<string | null>(null)
 
   const { data: sessionData, isLoading, isError } = useQuery({
     queryKey: ['sessions', resolvedSessionId],
@@ -40,7 +43,6 @@ export default function SessionPage() {
     if (sessionData) {
       const sorted = [...sessionData.questions].sort((a, b) => a.order - b.order)
       setQuestions(sorted)
-      // Sync current index based on persisted responses
       setCurrentQuestionIndex(sessionData.responses.length)
       setPageState('active')
     }
@@ -49,6 +51,23 @@ export default function SessionPage() {
   useEffect(() => {
     if (isError) setPageState('error')
   }, [isError])
+
+  useEffect(() => {
+    if (pageState !== 'all-answered' || isEvaluating) return
+    setIsEvaluating(true)
+    evaluateSession(resolvedSessionId)
+      .then((result) => {
+        reset()
+        queryClient.invalidateQueries({ queryKey: ['sessions', resolvedSessionId] })
+        navigate(`/specialist/session/${resolvedSessionId}/result`, {
+          state: { levelPercentage: result.levelPercentage },
+        })
+      })
+      .catch(() => {
+        setEvalError(t('session.evaluationError'))
+        setIsEvaluating(false)
+      })
+  }, [pageState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const submitMutation = useMutation({
     mutationFn: ({ qId, text }: { qId: string; text: string }) =>
@@ -74,8 +93,6 @@ export default function SessionPage() {
       try {
         await submitMutation.mutateAsync({ qId: currentQuestion.id, text: draft })
       } catch (err) {
-        // Even if submission fails, we still navigate away to respect user intent to pause,
-        // but the draft remains in local store (sessionStorage) for next time.
         console.error('Failed to auto-save draft on pause:', err)
       }
     }
@@ -102,10 +119,24 @@ export default function SessionPage() {
   }
 
   if (pageState === 'all-answered') {
+    if (evalError) {
+      return (
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 2 }}>
+          <Alert severity="error">{evalError}</Alert>
+          <Button
+            variant="contained"
+            onClick={() => { setEvalError(null); setPageState('all-answered') }}
+          >
+            {t('session.retryEvaluation')}
+          </Button>
+        </Box>
+      )
+    }
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 2 }}>
-        <CircularProgress />
-        <Typography>{t('session.allAnswered')}</Typography>
+        <CircularProgress size={48} />
+        <Typography variant="h6">{t('session.evaluating')}</Typography>
+        <Typography variant="body2" color="text.secondary">{t('session.evaluatingHint')}</Typography>
       </Box>
     )
   }
@@ -115,8 +146,9 @@ export default function SessionPage() {
     if (!currentQuestion) {
       return (
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 2 }}>
-          <CircularProgress />
-          <Typography>{t('session.allAnswered')}</Typography>
+          <CircularProgress size={48} />
+          <Typography variant="h6">{t('session.evaluating')}</Typography>
+          <Typography variant="body2" color="text.secondary">{t('session.evaluatingHint')}</Typography>
         </Box>
       )
     }

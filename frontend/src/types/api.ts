@@ -35,3 +35,11 @@ export interface SubmitAnswerResponse {
   createdAt: string
   updatedAt: string
 }
+
+export interface EvaluateSessionResponse {
+  sessionId: string
+  status: 'COMPLETED' | 'EVALUATION_PENDING'
+  finalScore: number
+  previousScore: number | null
+  levelPercentage: number
+}

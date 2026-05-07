@@ -12,6 +12,7 @@ import UsersPage from './pages/admin/UsersPage';
 import SettingsPage from './pages/admin/SettingsPage';
 import MatrixPage from './pages/specialist/MatrixPage'
 import SessionPage from './pages/specialist/SessionPage'
+import SessionResultPage from './pages/specialist/SessionResultPage'
 import CMDashboardPage from './pages/cm/DashboardPage'
 import MatrixReviewPage from './pages/cm/MatrixReviewPage';
 
@@ -66,6 +67,7 @@ export const router = createBrowserRouter([
         element: <FullScreenLayout />,
         children: [
           { path: 'session/:sessionId', element: <SessionPage /> },
+          { path: 'session/:sessionId/result', element: <SessionResultPage /> },
         ],
       },
     ],

@@ -152,7 +152,19 @@
     "backToMatrix": "До матриці",
     "startError": "Не вдалося розпочати оцінювання. Спробуйте ще раз.",
     "allAnswered": "Обробка ваших відповідей…",
-    "resumePrompt": "У вас є незавершене оцінювання. Продовжити?"
+    "resumePrompt": "У вас є незавершене оцінювання. Продовжити?",
+    "evaluating": "Оцінюємо ваші відповіді…",
+    "evaluatingHint": "Це може зайняти до 30 секунд",
+    "evaluationError": "Оцінювання не вдалося. Ваші відповіді збережено — спробуйте ще раз.",
+    "retryEvaluation": "Повторити оцінювання",
+    "strengths": "Сильні сторони",
+    "areasForGrowth": "Зони росту",
+    "score": "Оцінка",
+    "categoryProgress": "Оцінка категорії {{category}}",
+    "overallLevelPercentage": "Загальний прогрес рівня: {{percentage}}%",
+    "reviewTitle": "Огляд сесії",
+    "aiCommentaryPrefix": "На основі ваших відповідей:",
+    "resultAriaLabel": "Результат оцінювання"
   },
   "notifications": {
     "types": {

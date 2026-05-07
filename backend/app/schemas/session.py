@@ -70,3 +70,40 @@ class SubmitAnswerResponse(BaseModel):
     question_id: UUID
     created_at: datetime
     updated_at: datetime
+
+
+class EvaluateSessionResponse(BaseModel):
+    session_id: UUID
+    status: SessionStatus
+    final_score: int
+    previous_score: int | None
+    level_percentage: int
+
+
+class ResponseWithRationaleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    session_id: UUID
+    question_id: UUID
+    response_text: str
+    ai_rationale: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SessionResultRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    specialist_id: UUID
+    category_id: UUID
+    status: SessionStatus
+    final_score: int | None
+    previous_score: int | None
+    strengths: str | None
+    areas_for_growth: str | None
+    questions: list[QuestionRead] = []
+    responses: list[ResponseWithRationaleRead] = []
+    created_at: datetime
+    updated_at: datetime

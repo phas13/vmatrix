@@ -37,6 +37,10 @@ class AssessmentSession(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=False,
         default=SessionStatus.IN_PROGRESS,
     )
+    final_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    previous_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    strengths: Mapped[str | None] = mapped_column(Text, nullable=True)
+    areas_for_growth: Mapped[str | None] = mapped_column(Text, nullable=True)
     questions: Mapped[list["AssessmentQuestion"]] = relationship(back_populates="session")
     responses: Mapped[list["AssessmentResponse"]] = relationship(back_populates="session")
     dispute: Mapped["SessionDispute | None"] = relationship(back_populates="session", uselist=False)

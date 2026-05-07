@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -13,11 +14,17 @@ from app.core.exceptions import LLMUnavailableError, ProblemHTTPException
 from app.core.security import decrypt_field, encrypt_field
 from app.models.llm_call_log import LLMCallLog, LLMOperation
 from app.models.matrix import CompetencyCategory, CompetencyMatrix, MatrixStatus
-from app.models.session import AssessmentQuestion, AssessmentResponse, AssessmentSession, SessionStatus
+from app.models.session import (
+    AssessmentQuestion,
+    AssessmentResponse,
+    AssessmentSession,
+    SessionStatus,
+    SpecialistScore,
+)
 from app.models.user import User
-from app.providers.base import QuestionGenerationContext, SubItemInfo
+from app.providers.base import QAEntry, QuestionGenerationContext, ResponseEvaluationContext, SubItemInfo
 from app.providers.factory import get_llm_provider
-from app.services.prompt_builder import build_question_generation_prompt
+from app.services.prompt_builder import build_question_generation_prompt, build_response_evaluation_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +132,32 @@ def _session_not_in_progress(instance: str) -> ProblemHTTPException:
             "title": "Session not in progress",
             "status": 422,
             "detail": "Answers can only be submitted to an active (IN_PROGRESS) session.",
+            "instance": instance,
+        },
+    )
+
+
+def _not_all_questions_answered(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=422,
+        detail={
+            "type": "https://vmatrix.app/errors/incomplete-session",
+            "title": "Session incomplete",
+            "status": 422,
+            "detail": "All questions must be answered before evaluation.",
+            "instance": instance,
+        },
+    )
+
+
+def _session_already_evaluated(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=409,
+        detail={
+            "type": "https://vmatrix.app/errors/session-already-evaluated",
+            "title": "Session already evaluated",
+            "status": 409,
+            "detail": "This session has already been completed.",
             "instance": instance,
         },
     )
@@ -292,6 +325,148 @@ async def create_session_stream(
     return _generator()
 
 
+# ─── evaluate_session ─────────────────────────────────────────────────────────
+
+async def evaluate_session(
+    session_id: UUID,
+    db: AsyncSession,
+    *,
+    current_user: User,
+    instance: str,
+) -> dict:
+    # 1. Load session with FOR UPDATE to prevent concurrent evaluate calls
+    sess_result = await db.execute(
+        select(AssessmentSession)
+        .where(AssessmentSession.id == session_id)
+        .with_for_update()
+        .options(
+            selectinload(AssessmentSession.questions),
+            selectinload(AssessmentSession.responses),
+        )
+    )
+    session = sess_result.scalar_one_or_none()
+    if session is None or session.specialist_id != current_user.id:
+        raise _session_not_found(instance)
+    if session.status == SessionStatus.COMPLETED:
+        raise _session_already_evaluated(instance)
+    if session.status not in (SessionStatus.IN_PROGRESS, SessionStatus.EVALUATION_PENDING):
+        raise _session_not_in_progress(instance)
+
+    # 2. Validate all questions are answered
+    question_ids = {q.id for q in session.questions}
+    answered_ids = {r.question_id for r in session.responses}
+    if question_ids != answered_ids:
+        raise _not_all_questions_answered(instance)
+
+    # 3. Build QA entries (decrypt response_text before passing to LLM)
+    response_map = {r.question_id: r for r in session.responses}
+    qa_entries = [
+        QAEntry(
+            question_text=q.text,
+            question_type=q.question_type,
+            response_text=decrypt_field(response_map[q.id].response_text)
+            if response_map[q.id].response_text else "",
+            order=q.order,
+        )
+        for q in sorted(session.questions, key=lambda x: x.order)
+    ]
+
+    # 4. Load category name for LLM context
+    cat_result = await db.execute(
+        select(CompetencyCategory).where(CompetencyCategory.id == session.category_id)
+    )
+    category = cat_result.scalar_one_or_none()
+    category_name = category.name if category else ""
+    level = current_user.specialist_level.value if current_user.specialist_level else "junior"
+
+    context = ResponseEvaluationContext(
+        specialist_id=current_user.id,
+        category_name=category_name,
+        level=level,
+        qa_entries=qa_entries,
+    )
+
+    # 5. Build + encrypt prompt for LLM log
+    prompt = build_response_evaluation_prompt(context)
+    encrypted_prompt = encrypt_field(prompt)
+    start = time.monotonic()
+    llm_log = LLMCallLog(
+        provider=settings.LLM_PROVIDER,
+        operation=LLMOperation.RESPONSE_EVALUATION,
+        specialist_id=current_user.id,
+        request_payload=encrypted_prompt,
+    )
+
+    # 6. Call LLM
+    provider = get_llm_provider()
+    try:
+        eval_result, latency_ms, tokens_used = await provider.evaluate_responses(context)
+    except LLMUnavailableError as exc:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        llm_log.latency_ms = latency_ms
+        llm_log.error = str(exc)
+        session.status = SessionStatus.EVALUATION_PENDING
+        db.add(llm_log)
+        await db.commit()
+        raise _llm_unavailable(instance)
+
+    llm_log.latency_ms = latency_ms
+    llm_log.tokens_used = tokens_used
+
+    # 7. Write per-question rationale (Fernet-encrypted)
+    feedback_by_order = {fb.question_order: fb for fb in eval_result.per_question_feedback}
+    for q in session.questions:
+        resp = response_map.get(q.id)
+        if resp:
+            fb = feedback_by_order.get(q.order)
+            if fb:
+                resp.ai_rationale = encrypt_field(fb.commentary)
+
+    # 8. Get previous score before upsert
+    prev_score_result = await db.execute(
+        select(SpecialistScore).where(
+            SpecialistScore.specialist_id == current_user.id,
+            SpecialistScore.category_id == session.category_id,
+        )
+    )
+    existing_score = prev_score_result.scalar_one_or_none()
+    previous_score = existing_score.score if existing_score else None
+
+    # 9. Upsert SpecialistScore
+    now = datetime.now(timezone.utc)
+    if existing_score:
+        existing_score.score = eval_result.score
+        existing_score.last_assessed_at = now
+    else:
+        db.add(SpecialistScore(
+            specialist_id=current_user.id,
+            category_id=session.category_id,
+            score=eval_result.score,
+            last_assessed_at=now,
+        ))
+
+    # 10. Update session — atomic with SpecialistScore upsert
+    session.status = SessionStatus.COMPLETED
+    session.final_score = eval_result.score
+    session.previous_score = previous_score
+    session.strengths = encrypt_field(eval_result.strengths)
+    session.areas_for_growth = encrypt_field(eval_result.areas_for_growth)
+    db.add(llm_log)
+    await db.commit()
+
+    # 11. Calculate level percentage (read-only, safe after commit)
+    from app.services.level_service import calculate_percentage
+    level_percentage = await calculate_percentage(current_user.id, db)
+
+    return {
+        "session_id": session.id,
+        "status": SessionStatus.COMPLETED,
+        "final_score": eval_result.score,
+        "previous_score": previous_score,
+        "level_percentage": level_percentage,
+    }
+
+
 # ─── get_session ───────────────────────────────────────────────────────────────
 
 async def get_session(
@@ -318,10 +493,16 @@ async def get_session(
     if current_user.role == "specialist" and session.specialist_id != current_user.id:
         raise _session_not_found(instance)
 
-    # Decrypt responses if any
+    # Decrypt encrypted fields
     for resp in session.responses:
         if resp.response_text:
             resp.response_text = decrypt_field(resp.response_text)
+        if resp.ai_rationale:
+            resp.ai_rationale = decrypt_field(resp.ai_rationale)
+    if session.strengths:
+        session.strengths = decrypt_field(session.strengths)
+    if session.areas_for_growth:
+        session.areas_for_growth = decrypt_field(session.areas_for_growth)
 
     return session
 

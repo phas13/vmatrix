@@ -150,7 +150,19 @@
     "backToMatrix": "Back to Matrix",
     "startError": "Failed to start session. Please try again.",
     "allAnswered": "Processing your answers…",
-    "resumePrompt": "You have a session in progress. Resume?"
+    "resumePrompt": "You have a session in progress. Resume?",
+    "evaluating": "Evaluating your responses…",
+    "evaluatingHint": "This may take up to 30 seconds",
+    "evaluationError": "Evaluation failed. Your answers are saved — please retry.",
+    "retryEvaluation": "Retry evaluation",
+    "strengths": "Strengths",
+    "areasForGrowth": "Areas for growth",
+    "score": "Score",
+    "categoryProgress": "{{category}} category score",
+    "overallLevelPercentage": "Overall level progress: {{percentage}}%",
+    "reviewTitle": "Session review",
+    "aiCommentaryPrefix": "Based on your responses:",
+    "resultAriaLabel": "Assessment result"
   },
   "notifications": {
     "types": {
