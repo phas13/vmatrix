@@ -172,6 +172,19 @@
     "disputeSubmitSuccess": "Dispute submitted — your CM will review it",
     "disputeAlreadySubmitted": "A dispute has already been submitted for this session"
   },
+  "dashboard": {
+    "title": "My Progress Dashboard",
+    "overallProgress": "Overall Progress",
+    "categories": "Competency Categories",
+    "lastAssessed": "Last assessed {{date}}",
+    "notYetAssessed": "Not yet assessed",
+    "startAssessment": "Start assessment",
+    "inactivityNudge": "{{category}} not assessed in 45 days",
+    "deltaUp": "↑ from {{previous}}%",
+    "deltaDown": "↓ from {{previous}}%",
+    "noMatrix": "Your competency matrix is not yet approved. Your CM will review it shortly.",
+    "thresholdReached": "You have reached the promotion threshold — your CM has been notified."
+  },
   "notifications": {
     "types": {
       "credential_reset": "Your credentials have been reset by an administrator.",

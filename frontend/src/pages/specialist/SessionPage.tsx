@@ -6,6 +6,7 @@ import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material'
 import { evaluateSession, getSession, submitAnswer } from '../../api/sessions'
 import AssessmentSessionView from '../../components/session/AssessmentSessionView'
 import { useSessionStore } from '../../store/sessionStore'
+import { useAuth } from '../../hooks/useAuth'
 import type { AssessmentQuestion } from '../../types/domain'
 
 type PageState = 'loading' | 'active' | 'error' | 'all-answered'
@@ -15,6 +16,7 @@ export default function SessionPage() {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const { user } = useAuth()
 
   const {
     activeSessionId,
@@ -59,6 +61,7 @@ export default function SessionPage() {
       .then((result) => {
         reset()
         queryClient.invalidateQueries({ queryKey: ['sessions', resolvedSessionId] })
+        queryClient.invalidateQueries({ queryKey: ['specialist', 'dashboard', user?.id] })
         navigate(`/specialist/session/${resolvedSessionId}/result`, {
           state: { levelPercentage: result.levelPercentage },
         })

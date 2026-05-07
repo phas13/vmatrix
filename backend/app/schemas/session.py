@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.models.user import SpecialistLevel
+
 
 class SessionDisputeRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -140,3 +142,19 @@ class SessionResultRead(BaseModel):
     dispute: SessionDisputeRead | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class CategoryScoreRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    category_id: UUID
+    category_name: str
+    score: int | None
+    previous_score: int | None
+    last_assessed_at: datetime | None
+
+
+class SpecialistDashboardRead(BaseModel):
+    specialist_level: SpecialistLevel | None
+    overall_percentage: int
+    category_scores: list[CategoryScoreRead]

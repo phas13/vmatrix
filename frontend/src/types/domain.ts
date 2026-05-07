@@ -88,3 +88,17 @@ export interface AssessmentResponse {
   createdAt: string
   updatedAt: string
 }
+
+export interface CategoryScore {
+  categoryId: string
+  categoryName: string
+  score: number | null
+  previousScore: number | null
+  lastAssessedAt: string | null
+}
+
+export interface SpecialistDashboard {
+  specialistLevel: SpecialistLevel | null
+  overallPercentage: number
+  categoryScores: CategoryScore[]
+}

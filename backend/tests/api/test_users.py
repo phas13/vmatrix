@@ -1,11 +1,13 @@
-import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
-from unittest.mock import MagicMock
+
+import pytest
 from httpx import AsyncClient
 
-from app.models.user import User, UserRole
-from app.models.notification import Notification
 from app.db.session import get_db_session
+from app.models.notification import Notification
+from app.models.user import SpecialistLevel, User, UserRole
+from app.schemas.session import CategoryScoreRead, SpecialistDashboardRead
 from main import app
 
 # Reuse helpers from test_matrix if needed, but for simplicity:
@@ -24,6 +26,66 @@ def _scalar_one_or_none_result(value):
     r = MagicMock()
     r.scalar_one_or_none.return_value = value
     return r
+
+_DASHBOARD_RESPONSE = SpecialistDashboardRead(
+    specialist_level=SpecialistLevel.JUNIOR,
+    overall_percentage=61,
+    category_scores=[
+        CategoryScoreRead(
+            category_id=uuid4(),
+            category_name="Kubernetes",
+            score=61,
+            previous_score=55,
+            last_assessed_at=None,
+        )
+    ],
+)
+
+
+@pytest.mark.asyncio
+async def test_get_specialist_dashboard_returns_200_for_specialist(async_client: AsyncClient):
+    user = _make_user(role=UserRole.SPECIALIST)
+    from tests.api.test_matrix import _routed_db
+    override, mock_db, _ = _routed_db(_scalar_one_or_none_result(user))
+    mock_db.get = AsyncMock(return_value=user)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(user)
+        with patch("app.services.level_service.get_dashboard_data", AsyncMock(return_value=_DASHBOARD_RESPONSE)):
+            response = await async_client.get(
+                "/api/v1/users/me/dashboard",
+                cookies={"access_token": token},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["overall_percentage"] == 61
+        assert data["specialist_level"] == "junior"
+        assert len(data["category_scores"]) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize("role", [UserRole.CM, UserRole.HR, UserRole.ADMIN])
+@pytest.mark.asyncio
+async def test_get_specialist_dashboard_returns_403_for_non_specialist(
+    async_client: AsyncClient, role: UserRole
+):
+    user = _make_user(role=role)
+    from tests.api.test_matrix import _routed_db
+    override, _, _ = _routed_db(_scalar_one_or_none_result(user))
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(user)
+        response = await async_client.get(
+            "/api/v1/users/me/dashboard",
+            cookies={"access_token": token},
+        )
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+
 
 @pytest.mark.asyncio
 async def test_mark_notification_read_idempotent(async_client: AsyncClient):

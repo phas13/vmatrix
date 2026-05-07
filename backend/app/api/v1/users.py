@@ -5,11 +5,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.core.dependencies import get_current_user, get_db_session
+from app.core.dependencies import get_current_user, get_db_session, require_role
 from app.core.exceptions import ProblemHTTPException
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.notification import Notification
+from app.schemas.session import SpecialistDashboardRead
 from app.schemas.user import SpecialistSummary
+from app.services import level_service
 
 router = APIRouter()
 
@@ -17,6 +19,14 @@ router = APIRouter()
 @router.get("/me", response_model=SpecialistSummary)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.get("/me/dashboard", response_model=SpecialistDashboardRead)
+async def get_specialist_dashboard(
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_role(UserRole.SPECIALIST)),
+) -> SpecialistDashboardRead:
+    return await level_service.get_dashboard_data(current_user.id, db)
 
 
 @router.get("/me/notifications/unread")

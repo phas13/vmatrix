@@ -10,6 +10,7 @@ import LoginPage from './pages/LoginPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 import UsersPage from './pages/admin/UsersPage';
 import SettingsPage from './pages/admin/SettingsPage';
+import DashboardPage from './pages/specialist/DashboardPage'
 import MatrixPage from './pages/specialist/MatrixPage'
 import SessionPage from './pages/specialist/SessionPage'
 import SessionResultPage from './pages/specialist/SessionResultPage'
@@ -58,7 +59,7 @@ export const router = createBrowserRouter([
       {
         element: <SpecialistLayout />,
         children: [
-          { path: 'dashboard', element: <PlaceholderPage title="Specialist Dashboard" /> },
+          { path: 'dashboard', element: <DashboardPage /> },
           { path: 'matrix', element: <MatrixPage /> },
           { path: 'history', element: <PlaceholderPage title="Assessment History" /> },
         ],
