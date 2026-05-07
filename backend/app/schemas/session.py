@@ -3,9 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
-
-from app.models.session import DisputeStatus, SessionStatus
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SessionDisputeRead(BaseModel):
@@ -16,16 +14,16 @@ class SessionDisputeRead(BaseModel):
     status: DisputeStatus
     specialist_explanation: str
     submitted_at: datetime
-    cm_decision: str | None
-    cm_note: str | None
-    resolved_at: datetime | None
-    cm_id: UUID | None
+    cm_decision: str | None = None
+    cm_note: str | None = None
+    resolved_at: datetime | None = None
+    cm_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
 
 class SubmitDisputeRequest(BaseModel):
-    specialist_explanation: str
+    specialist_explanation: str = Field(..., max_length=10000)
 
     @field_validator("specialist_explanation")
     @classmethod
@@ -35,16 +33,9 @@ class SubmitDisputeRequest(BaseModel):
         return v
 
 
-class SubmitDisputeResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class SubmitDisputeResponse(SessionDisputeRead):
+    pass
 
-    id: UUID
-    session_id: UUID
-    status: DisputeStatus
-    specialist_explanation: str
-    submitted_at: datetime
-    created_at: datetime
-    updated_at: datetime
 
 
 class SessionCreateRequest(BaseModel):

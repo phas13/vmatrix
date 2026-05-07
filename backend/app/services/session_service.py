@@ -24,7 +24,7 @@ from app.models.session import (
     SessionStatus,
     SpecialistScore,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.providers.base import QAEntry, QuestionGenerationContext, ResponseEvaluationContext, SubItemInfo
 from app.providers.factory import get_llm_provider
 from app.services.prompt_builder import build_question_generation_prompt, build_response_evaluation_prompt
@@ -57,6 +57,19 @@ def _session_not_found(instance: str) -> ProblemHTTPException:
             "title": "Session not found",
             "status": 404,
             "detail": "Assessment session not found",
+            "instance": instance,
+        },
+    )
+
+
+def _forbidden_access(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=403,
+        detail={
+            "type": "https://vmatrix.app/errors/forbidden",
+            "title": "Forbidden",
+            "status": 403,
+            "detail": "You do not have permission to access this session.",
             "instance": instance,
         },
     )
@@ -514,16 +527,20 @@ async def get_session(
     *,
     current_user: User,
     instance: str,
+    load_dispute: bool = False,
 ) -> AssessmentSession:
     # Specialists can only see their own sessions. CMs and Admins can see any.
+    options = [
+        selectinload(AssessmentSession.questions),
+        selectinload(AssessmentSession.responses),
+    ]
+    if load_dispute:
+        options.append(selectinload(AssessmentSession.dispute))
+
     result = await db.execute(
         select(AssessmentSession)
         .where(AssessmentSession.id == session_id)
-        .options(
-            selectinload(AssessmentSession.questions),
-            selectinload(AssessmentSession.responses),
-            selectinload(AssessmentSession.dispute),
-        )
+        .options(*options)
     )
     session = result.scalar_one_or_none()
     if session is None:
@@ -610,6 +627,9 @@ async def submit_answer(
 
 # ─── submit_dispute ────────────────────────────────────────────────────────────
 
+DISPUTE_SUBMITTED_NOTIFICATION = "A specialist has submitted a dispute for session review."
+
+
 async def submit_dispute(
     session_id: UUID,
     specialist_explanation: str,
@@ -625,8 +645,11 @@ async def submit_dispute(
         .options(selectinload(AssessmentSession.dispute))
     )
     session = result.scalar_one_or_none()
-    if session is None or session.specialist_id != current_user.id:
+    if session is None:
         raise _session_not_found(instance)
+
+    if session.specialist_id != current_user.id:
+        raise _forbidden_access(instance)
 
     if session.status != SessionStatus.COMPLETED:
         raise _session_not_completed(instance)
@@ -647,9 +670,14 @@ async def submit_dispute(
         notification = Notification(
             user_id=current_user.cm_id,
             type=NotificationType.DISPUTE_SUBMITTED,
-            content=f"Specialist {current_user.full_name} has submitted a dispute for review.",
+            content=DISPUTE_SUBMITTED_NOTIFICATION,
         )
         db.add(notification)
+    else:
+        logger.warning(
+            "Dispute submitted for session %s but specialist %s has no CM assigned.",
+            session_id, current_user.id
+        )
 
     await db.commit()
     await db.refresh(dispute)

@@ -54,6 +54,7 @@ async def get_session(
         db=db,
         current_user=current_user,
         instance=str(request.url.path),
+        load_dispute=True,
     )
     session.questions.sort(key=lambda q: q.order)
     return SessionResultRead.model_validate(session)

@@ -67,9 +67,13 @@ export default function SessionResultPage() {
       setDisputeText('')
       setSnackbarOpen(true)
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status
+      const axiosError = err as { response?: { status?: number; data?: { detail?: { detail?: string } } } }
+      const status = axiosError.response?.status
+      const detail = axiosError.response?.data?.detail?.detail
       if (status === 409) {
         setDisputeError(t('session.disputeAlreadySubmitted'))
+      } else if (detail) {
+        setDisputeError(detail)
       } else {
         setDisputeError(t('common.genericError'))
       }
