@@ -623,12 +623,18 @@ async def test_get_session_returns_questions_sorted_by_order(async_client, mock_
     mock_session.updated_at = _now()
     mock_session.questions = [q1, q0]  # intentionally unsorted
     mock_session.responses = []
+    mock_session.dispute = None
 
     mock_db = AsyncMock()
     mock_db.commit = AsyncMock()
     mock_db.flush = AsyncMock()
 
     call_count = 0
+
+    def _scalar_result(value) -> MagicMock:
+        r = MagicMock()
+        r.scalar.return_value = value
+        return r
 
     async def execute_side_effect(*_args, **_kwargs):
         nonlocal call_count
@@ -637,6 +643,12 @@ async def test_get_session_returns_questions_sorted_by_order(async_client, mock_
             return _scalar_one_or_none_result(specialist)
         if call_count == 2:
             return _scalar_one_or_none_result(mock_session)
+        if call_count == 3:
+            # category name lookup — uses result.scalar()
+            return _scalar_result(None)
+        if call_count == 4:
+            # calculate_percentage → empty scores list
+            return _scalars_all_result([])
         return _scalar_one_or_none_result(None)
 
     mock_db.execute = AsyncMock(side_effect=execute_side_effect)
@@ -902,9 +914,15 @@ async def test_get_session_returns_ai_rationale(async_client, mock_llm_provider)
     mock_session.updated_at = _now()
     mock_session.questions = [mock_q]
     mock_session.responses = [mock_resp]
+    mock_session.dispute = None
 
     mock_db = AsyncMock()
     call_count = 0
+
+    def _scalar_result(value) -> MagicMock:
+        r = MagicMock()
+        r.scalar.return_value = value
+        return r
 
     async def execute_side_effect(*_args, **_kwargs):
         nonlocal call_count
@@ -913,6 +931,12 @@ async def test_get_session_returns_ai_rationale(async_client, mock_llm_provider)
             return _scalar_one_or_none_result(specialist)
         if call_count == 2:
             return _scalar_one_or_none_result(mock_session)
+        if call_count == 3:
+            # category name lookup — uses result.scalar()
+            return _scalar_result(None)
+        if call_count == 4:
+            # calculate_percentage → empty scores list
+            return _scalars_all_result([])
         return _scalar_one_or_none_result(None)
 
     mock_db.execute = AsyncMock(side_effect=execute_side_effect)
@@ -937,3 +961,112 @@ async def test_get_session_returns_ai_rationale(async_client, mock_llm_provider)
     assert data["areas_for_growth"] == "Improve edge cases."
     assert len(data["responses"]) == 1
     assert data["responses"][0]["ai_rationale"] == raw_rationale
+
+
+# ─── Story 4.4: submit_dispute ─────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_submit_dispute_success():
+    """Happy path: creates SessionDispute and Notification, returns 201."""
+    from app.services.session_service import submit_dispute
+
+    specialist = _make_user()
+    specialist.cm_id = uuid4()
+    session = _make_session(specialist)
+    session.status = SessionStatus.COMPLETED
+    session.dispute = None
+
+    override, mock_db, added = _make_routed_db(_scalar_one_or_none_result(session))
+
+    await submit_dispute(
+        session_id=session.id,
+        specialist_explanation="I disagree with the evaluation.",
+        db=mock_db,
+        current_user=specialist,
+        instance="/api/v1/sessions/test/actions/submit-dispute",
+    )
+
+    mock_db.commit.assert_called_once()
+    assert len(added) == 2
+
+
+@pytest.mark.asyncio
+async def test_submit_dispute_duplicate():
+    """Session already has dispute → 409."""
+    from app.core.exceptions import ProblemHTTPException
+    from app.models.session import SessionDispute as SessionDisputeModel, DisputeStatus
+    from app.services.session_service import submit_dispute
+
+    specialist = _make_user()
+    session = _make_session(specialist)
+    session.status = SessionStatus.COMPLETED
+    existing_dispute = MagicMock(spec=SessionDisputeModel)
+    existing_dispute.status = DisputeStatus.OPEN
+    session.dispute = existing_dispute
+
+    _, mock_db, _ = _make_routed_db(_scalar_one_or_none_result(session))
+
+    with pytest.raises(ProblemHTTPException) as exc_info:
+        await submit_dispute(
+            session_id=session.id,
+            specialist_explanation="Still disagree.",
+            db=mock_db,
+            current_user=specialist,
+            instance="/api/v1/sessions/test/actions/submit-dispute",
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "dispute-already-exists" in exc_info.value.detail["type"]
+
+
+@pytest.mark.asyncio
+async def test_submit_dispute_session_not_completed():
+    """Session not COMPLETED → 422."""
+    from app.core.exceptions import ProblemHTTPException
+    from app.services.session_service import submit_dispute
+
+    specialist = _make_user()
+    session = _make_session(specialist)
+    session.status = SessionStatus.IN_PROGRESS
+    session.dispute = None
+
+    _, mock_db, _ = _make_routed_db(_scalar_one_or_none_result(session))
+
+    with pytest.raises(ProblemHTTPException) as exc_info:
+        await submit_dispute(
+            session_id=session.id,
+            specialist_explanation="I disagree.",
+            db=mock_db,
+            current_user=specialist,
+            instance="/api/v1/sessions/test/actions/submit-dispute",
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "session-not-completed" in exc_info.value.detail["type"]
+
+
+@pytest.mark.asyncio
+async def test_submit_dispute_wrong_owner():
+    """Session belongs to different specialist → 404 (information hiding)."""
+    from app.core.exceptions import ProblemHTTPException
+    from app.services.session_service import submit_dispute
+
+    specialist = _make_user()
+    other_specialist = _make_user()
+    session = _make_session(other_specialist)
+    session.status = SessionStatus.COMPLETED
+    session.dispute = None
+
+    _, mock_db, _ = _make_routed_db(_scalar_one_or_none_result(session))
+
+    with pytest.raises(ProblemHTTPException) as exc_info:
+        await submit_dispute(
+            session_id=session.id,
+            specialist_explanation="I disagree.",
+            db=mock_db,
+            current_user=specialist,
+            instance="/api/v1/sessions/test/actions/submit-dispute",
+        )
+
+    assert exc_info.value.status_code == 404
+    assert "session-not-found" in exc_info.value.detail["type"]

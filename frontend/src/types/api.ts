@@ -43,3 +43,13 @@ export interface EvaluateSessionResponse {
   previousScore: number | null
   levelPercentage: number
 }
+
+export interface SubmitDisputeResponse {
+  id: string
+  sessionId: string
+  status: 'open' | 'resolved'
+  specialistExplanation: string
+  submittedAt: string
+  createdAt: string
+  updatedAt: string
+}

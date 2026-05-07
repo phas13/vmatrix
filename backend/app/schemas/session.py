@@ -5,7 +5,46 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.models.session import SessionStatus
+from app.models.session import DisputeStatus, SessionStatus
+
+
+class SessionDisputeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    session_id: UUID
+    status: DisputeStatus
+    specialist_explanation: str
+    submitted_at: datetime
+    cm_decision: str | None
+    cm_note: str | None
+    resolved_at: datetime | None
+    cm_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SubmitDisputeRequest(BaseModel):
+    specialist_explanation: str
+
+    @field_validator("specialist_explanation")
+    @classmethod
+    def explanation_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("specialist_explanation must not be blank")
+        return v
+
+
+class SubmitDisputeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    session_id: UUID
+    status: DisputeStatus
+    specialist_explanation: str
+    submitted_at: datetime
+    created_at: datetime
+    updated_at: datetime
 
 
 class SessionCreateRequest(BaseModel):
@@ -107,5 +146,6 @@ class SessionResultRead(BaseModel):
     areas_for_growth: str | None
     questions: list[QuestionRead] = []
     responses: list[ResponseWithRationaleRead] = []
+    dispute: SessionDisputeRead | None = None
     created_at: datetime
     updated_at: datetime

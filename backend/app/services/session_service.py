@@ -14,10 +14,13 @@ from app.core.exceptions import LLMUnavailableError, ProblemHTTPException
 from app.core.security import decrypt_field, encrypt_field
 from app.models.llm_call_log import LLMCallLog, LLMOperation
 from app.models.matrix import CompetencyCategory, CompetencyMatrix, MatrixStatus
+from app.models.notification import Notification, NotificationType
 from app.models.session import (
     AssessmentQuestion,
     AssessmentResponse,
     AssessmentSession,
+    DisputeStatus,
+    SessionDispute,
     SessionStatus,
     SpecialistScore,
 )
@@ -158,6 +161,32 @@ def _session_already_evaluated(instance: str) -> ProblemHTTPException:
             "title": "Session already evaluated",
             "status": 409,
             "detail": "This session has already been completed.",
+            "instance": instance,
+        },
+    )
+
+
+def _dispute_already_exists(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=409,
+        detail={
+            "type": "https://vmatrix.app/errors/dispute-already-exists",
+            "title": "Dispute already exists",
+            "status": 409,
+            "detail": "Session has an active dispute and cannot be disputed again.",
+            "instance": instance,
+        },
+    )
+
+
+def _session_not_completed(instance: str) -> ProblemHTTPException:
+    return ProblemHTTPException(
+        status_code=422,
+        detail={
+            "type": "https://vmatrix.app/errors/session-not-completed",
+            "title": "Session not completed",
+            "status": 422,
+            "detail": "Disputes can only be submitted for completed sessions.",
             "instance": instance,
         },
     )
@@ -493,6 +522,7 @@ async def get_session(
         .options(
             selectinload(AssessmentSession.questions),
             selectinload(AssessmentSession.responses),
+            selectinload(AssessmentSession.dispute),
         )
     )
     session = result.scalar_one_or_none()
@@ -576,3 +606,51 @@ async def submit_answer(
     await db.commit()
     await db.refresh(response)
     return response
+
+
+# ─── submit_dispute ────────────────────────────────────────────────────────────
+
+async def submit_dispute(
+    session_id: UUID,
+    specialist_explanation: str,
+    db: AsyncSession,
+    *,
+    current_user: User,
+    instance: str,
+) -> SessionDispute:
+    result = await db.execute(
+        select(AssessmentSession)
+        .where(AssessmentSession.id == session_id)
+        .with_for_update()
+        .options(selectinload(AssessmentSession.dispute))
+    )
+    session = result.scalar_one_or_none()
+    if session is None or session.specialist_id != current_user.id:
+        raise _session_not_found(instance)
+
+    if session.status != SessionStatus.COMPLETED:
+        raise _session_not_completed(instance)
+
+    if session.dispute is not None:
+        raise _dispute_already_exists(instance)
+
+    now = datetime.now(timezone.utc)
+    dispute = SessionDispute(
+        session_id=session_id,
+        status=DisputeStatus.OPEN,
+        specialist_explanation=specialist_explanation,
+        submitted_at=now,
+    )
+    db.add(dispute)
+
+    if current_user.cm_id is not None:
+        notification = Notification(
+            user_id=current_user.cm_id,
+            type=NotificationType.DISPUTE_SUBMITTED,
+            content=f"Specialist {current_user.full_name} has submitted a dispute for review.",
+        )
+        db.add(notification)
+
+    await db.commit()
+    await db.refresh(dispute)
+    return dispute

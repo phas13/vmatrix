@@ -165,7 +165,14 @@
     "overallLevelPercentage": "Загальний прогрес рівня: {{percentage}}%",
     "reviewTitle": "Огляд сесії",
     "aiCommentaryPrefix": "На основі ваших відповідей:",
-    "resultAriaLabel": "Результат оцінювання"
+    "resultAriaLabel": "Результат оцінювання",
+    "disputeButton": "Оскаржити результат",
+    "disputeDialogTitle": "Подати скаргу",
+    "disputeExplanationLabel": "Пояснення",
+    "disputeExplanationPlaceholder": "Поясніть, чому вважаєте оцінку неточною. Вкажіть конкретні питання або оцінки, з якими ви не згодні.",
+    "disputeSubmit": "Подати скаргу",
+    "disputeSubmitSuccess": "Скаргу подано — ваш КМ її розгляне",
+    "disputeAlreadySubmitted": "Скаргу для цієї сесії вже подано"
   },
   "notifications": {
     "types": {

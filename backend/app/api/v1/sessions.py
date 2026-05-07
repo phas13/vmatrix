@@ -12,6 +12,8 @@ from app.schemas.session import (
     SessionResultRead,
     SubmitAnswerRequest,
     SubmitAnswerResponse,
+    SubmitDisputeRequest,
+    SubmitDisputeResponse,
 )
 from app.services import session_service
 
@@ -72,6 +74,29 @@ async def evaluate_session(
         instance=str(request.url.path),
     )
     return EvaluateSessionResponse(**result)
+
+
+@router.post(
+    "/{session_id}/actions/submit-dispute",
+    response_model=SubmitDisputeResponse,
+    status_code=201,
+)
+async def submit_dispute(
+    request: Request,
+    session_id: UUID,
+    body: SubmitDisputeRequest,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_role(UserRole.SPECIALIST)),
+    _csrf: None = Depends(require_csrf),
+) -> SubmitDisputeResponse:
+    dispute = await session_service.submit_dispute(
+        session_id=session_id,
+        specialist_explanation=body.specialist_explanation,
+        db=db,
+        current_user=current_user,
+        instance=str(request.url.path),
+    )
+    return SubmitDisputeResponse.model_validate(dispute)
 
 
 @router.post("/{session_id}/actions/submit-answer", response_model=SubmitAnswerResponse, status_code=201)

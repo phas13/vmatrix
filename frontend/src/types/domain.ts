@@ -37,6 +37,20 @@ export interface CompetencyMatrix {
   updatedAt: string
 }
 
+export interface SessionDispute {
+  id: string
+  sessionId: string
+  status: 'open' | 'resolved'
+  specialistExplanation: string
+  submittedAt: string
+  cmDecision: string | null
+  cmNote: string | null
+  resolvedAt: string | null
+  cmId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface AssessmentSession {
   id: string
   specialistId: string
@@ -50,6 +64,7 @@ export interface AssessmentSession {
   areasForGrowth: string | null
   questions: AssessmentQuestion[]
   responses: AssessmentResponse[]
+  dispute: SessionDispute | null
   createdAt: string
   updatedAt: string
 }
