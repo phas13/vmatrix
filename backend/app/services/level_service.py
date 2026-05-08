@@ -13,13 +13,37 @@ logger = logging.getLogger(__name__)
 
 
 async def calculate_percentage(specialist_id: UUID, db: AsyncSession) -> int:
-    result = await db.execute(
-        select(SpecialistScore).where(SpecialistScore.specialist_id == specialist_id)
+    # Get approved matrix for this specialist
+    matrix_result = await db.execute(
+        select(CompetencyMatrix).where(
+            CompetencyMatrix.specialist_id == specialist_id,
+            CompetencyMatrix.status == MatrixStatus.APPROVED,
+        )
     )
-    scores = result.scalars().all()
+    matrix = matrix_result.scalar_one_or_none()
+    if not matrix:
+        return 0
+
+    # Get categories for this matrix
+    cats_result = await db.execute(
+        select(CompetencyCategory.id).where(CompetencyCategory.matrix_id == matrix.id)
+    )
+    category_ids = cats_result.scalars().all()
+    if not category_ids:
+        return 0
+
+    # Get scores only for these categories
+    scores_result = await db.execute(
+        select(SpecialistScore.score).where(
+            SpecialistScore.specialist_id == specialist_id,
+            SpecialistScore.category_id.in_(category_ids)
+        )
+    )
+    scores = scores_result.scalars().all()
     if not scores:
         return 0
-    return round(sum(s.score for s in scores) / len(scores))
+
+    return round(sum(scores) / len(scores))
 
 
 async def get_dashboard_data(specialist_id: UUID, db: AsyncSession) -> SpecialistDashboardRead:
@@ -98,11 +122,9 @@ async def get_dashboard_data(specialist_id: UUID, db: AsyncSession) -> Specialis
     )
 
 
-async def check_threshold(specialist_id: UUID, db: AsyncSession) -> bool:
+async def check_threshold(specialist_id: UUID, percentage: int, db: AsyncSession) -> bool:
     from app.models.notification import Notification, NotificationType
     from app.models.system_settings import SystemSettings
-
-    percentage = await calculate_percentage(specialist_id, db)
 
     settings_result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
     settings = settings_result.scalar_one_or_none()

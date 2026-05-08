@@ -225,10 +225,10 @@
       "credential_reset": "Your credentials have been reset by an administrator.",
       "matrix_pending_review": "A specialist has submitted their matrix for review.",
       "matrix_approved": "Your competency matrix has been approved — you can start assessments.",
-      "dispute_submitted": "A dispute has been submitted on your assessment.",
-      "dispute_resolved": "Your dispute has been reviewed — see result",
+      "dispute_submitted": "A specialist has submitted a dispute for session review.",
+      "dispute_resolved": "Your dispute for {{category}} has been reviewed — see result",
       "promotion_suggestion": "A specialist on your team has reached the promotion threshold",
-      "promotion_approved": "Congratulations — you've been promoted",
+      "promotion_approved": "Congratulations — you've been promoted to {{level}}",
       "promotion_rejected": "Your promotion request was reviewed — see CM feedback",
       "new_cm_assignment": "A new specialist has been assigned to you — begin initialization"
     }

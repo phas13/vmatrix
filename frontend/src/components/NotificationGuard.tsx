@@ -9,6 +9,7 @@ const HANDLED_TYPES = [
   'credential_reset',
   'matrix_approved',
   'matrix_pending_review',
+  'dispute_submitted',
   'dispute_resolved',
   'promotion_approved',
   'promotion_rejected',
@@ -26,6 +27,7 @@ export default function NotificationGuard({ children }: { children: React.ReactN
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const [current, setCurrent] = useState<{ id: string; type: string; message: string } | null>(null);
 
   const { data: notifications } = useQuery({
@@ -37,27 +39,25 @@ export default function NotificationGuard({ children }: { children: React.ReactN
 
   useEffect(() => {
     if (!notifications || notifications.length === 0) return;
-    const found = notifications.find((n) => HANDLED_TYPES.includes(n.type));
+    const found = notifications.find((n) => HANDLED_TYPES.includes(n.type) && !dismissedIds.has(n.id));
     if (found && !open) {
       setCurrent({ id: found.id, type: found.type, message: found.content });
       setOpen(true);
     }
-  }, [notifications, open]);
+  }, [notifications, open, dismissedIds]);
 
   const handleClose = async (_event?: React.SyntheticEvent | Event, reason?: string) => {
     if (reason === 'clickaway') return;
     
     if (current) {
       try {
-        await markNotificationRead(current.id);
+        setDismissedIds((prev) => new Set(prev).add(current.id));
         setOpen(false);
+        await markNotificationRead(current.id);
         queryClient.invalidateQueries({ queryKey: ['notifications', 'unread'] });
         setCurrent(null);
       } catch (error) {
         console.error('Failed to mark notification as read:', error);
-        // Keep it open so the user can try again or at least see it's still there
-        // Or we could close it but not invalidate, but then it might pop up again.
-        // The safest for UX is probably to close it but warn the user.
         setOpen(false);
       }
     } else {

@@ -661,8 +661,8 @@ async def test_get_session_returns_questions_sorted_by_order(async_client, mock_
             # category name lookup — uses result.scalar()
             return _scalar_result(None)
         if call_count == 4:
-            # calculate_percentage → empty scores list
-            return _scalars_all_result([])
+            # calculate_percentage → matrix query
+            return _scalar_one_or_none_result(None)
         return _scalar_one_or_none_result(None)
 
     mock_db.execute = AsyncMock(side_effect=execute_side_effect)
@@ -743,18 +743,19 @@ async def test_evaluate_session_success():
         per_question_feedback=[QuestionFeedback(question_order=0, commentary="Good answer.")],
     )
 
-    new_score = MagicMock(spec=SpecialistScore)
-    new_score.score = 78
+    matrix = _make_matrix(specialist)
 
     _, mock_db, _ = _make_routed_db(
         _scalar_one_or_none_result(session),    # session FOR UPDATE
         _scalar_one_or_none_result(category),   # category lookup
         _scalar_one_or_none_result(None),        # no prior SpecialistScore
-        _scalars_all_result([new_score]),        # calculate_percentage (step 10)
-        _scalars_all_result([new_score]),        # check_threshold → calculate_percentage
-        _scalar_one_or_none_result(None),        # check_threshold → SystemSettings (fallback 90, 78 < 90 → False)
+        # calculate_percentage (step 10)
+        _scalar_one_or_none_result(matrix),      # 1. matrix query
+        _scalars_all_result([category.id]),      # 2. categories query
+        _scalars_all_result([78]),               # 3. scores query
+        # check_threshold (step 11)
+        _scalar_one_or_none_result(None),        # SystemSettings (fallback 90, 78 < 90 → False)
     )
-
     mock_provider = AsyncMock()
     mock_provider.evaluate_responses = AsyncMock(return_value=(mock_eval_result, 1200, 4000))
 
@@ -951,8 +952,8 @@ async def test_get_session_returns_ai_rationale(async_client, mock_llm_provider)
             # category name lookup — uses result.scalar()
             return _scalar_result(None)
         if call_count == 4:
-            # calculate_percentage → empty scores list
-            return _scalars_all_result([])
+            # calculate_percentage → matrix query
+            return _scalar_one_or_none_result(None)
         return _scalar_one_or_none_result(None)
 
     mock_db.execute = AsyncMock(side_effect=execute_side_effect)

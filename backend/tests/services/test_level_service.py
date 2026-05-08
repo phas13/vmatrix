@@ -149,12 +149,11 @@ async def test_check_threshold_below_threshold_returns_false():
 
     db = AsyncMock()
     execute_results = [
-        _scalars_result([score]),              # calculate_percentage
         _scalar_one_or_none_result(settings),  # SystemSettings
     ]
     db.execute = AsyncMock(side_effect=lambda *a, **k: execute_results.pop(0))
 
-    result = await check_threshold(specialist_id, db)
+    result = await check_threshold(specialist_id, 80, db)
 
     assert result is False
     db.add.assert_not_called()
@@ -176,12 +175,11 @@ async def test_check_threshold_reached_no_cm_returns_true():
     db = AsyncMock()
     db.get.return_value = specialist
     execute_results = [
-        _scalars_result([score]),              # calculate_percentage
         _scalar_one_or_none_result(settings),  # SystemSettings
     ]
     db.execute = AsyncMock(side_effect=lambda *a, **k: execute_results.pop(0))
 
-    result = await check_threshold(specialist_id, db)
+    result = await check_threshold(specialist_id, 95, db)
 
     assert result is True
     db.add.assert_not_called()
@@ -205,7 +203,6 @@ async def test_check_threshold_reached_creates_cm_notification():
     db = AsyncMock()
     db.get.return_value = specialist
     execute_results = [
-        _scalars_result([score]),                    # calculate_percentage
         _scalar_one_or_none_result(settings),        # SystemSettings
         _scalar_one_or_none_result(None),            # dedup check → no existing notification
     ]
@@ -214,7 +211,7 @@ async def test_check_threshold_reached_creates_cm_notification():
     added = []
     db.add = MagicMock(side_effect=added.append)
 
-    result = await check_threshold(specialist_id, db)
+    result = await check_threshold(specialist_id, 92, db)
 
     assert result is True
     assert len(added) == 1
@@ -244,7 +241,6 @@ async def test_check_threshold_deduplicates_existing_notification():
     db = AsyncMock()
     db.get.return_value = specialist
     execute_results = [
-        _scalars_result([score]),                          # calculate_percentage
         _scalar_one_or_none_result(settings),              # SystemSettings
         _scalar_one_or_none_result(existing_notif),        # dedup check → already notified
     ]
@@ -253,7 +249,7 @@ async def test_check_threshold_deduplicates_existing_notification():
     added = []
     db.add = MagicMock(side_effect=added.append)
 
-    result = await check_threshold(specialist_id, db)
+    result = await check_threshold(specialist_id, 95, db)
 
     assert result is True
     assert len(added) == 0

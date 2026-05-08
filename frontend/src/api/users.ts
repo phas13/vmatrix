@@ -11,7 +11,9 @@ export interface Notification {
 }
 
 export async function getUnreadNotifications(): Promise<Notification[]> {
-  const response = await apiClient.get<PaginatedResponse<Notification>>('/users/me/notifications/unread');
+  const response = await apiClient.get<PaginatedResponse<Notification>>('/users/me/notifications/unread', {
+    params: { per_page: 100 },
+  });
   return response.data.items;
 }
 
