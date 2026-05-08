@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.user import SpecialistLevel
+from app.models.session import SessionStatus, DisputeStatus
 
 
 class SessionDisputeRead(BaseModel):

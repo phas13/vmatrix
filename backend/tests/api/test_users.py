@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -126,5 +127,49 @@ async def test_mark_notification_read_idempotent(async_client: AsyncClient):
         )
         assert response.status_code == 200
         assert notification.read_at == first_read_at
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_get_unread_notifications_paginated(async_client: AsyncClient):
+    user = _make_user()
+    notif1 = MagicMock(spec=Notification)
+    notif1.id = uuid4()
+    notif1.user_id = user.id
+    from app.models.notification import NotificationType
+    notif1.type = NotificationType.NEW_CM_ASSIGNMENT
+    notif1.content = "Test content"
+    notif1.is_read = False
+    notif1.read_at = None
+    notif1.created_at = datetime.now()
+    notif1.updated_at = datetime.now()
+
+    # Mocking rows: (notification_obj, total_count)
+    rows = [(notif1, 1)]
+    
+    from tests.api.test_matrix import _routed_db
+    mock_result = MagicMock()
+    mock_result.all.return_value = rows
+    
+    override, _, _ = _routed_db(
+        _scalar_one_or_none_result(user), # auth me
+        mock_result,                      # notifications query
+    )
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        token = _make_jwt(user)
+        response = await async_client.get(
+            "/api/v1/users/me/notifications/unread?page=1&per_page=10",
+            cookies={"access_token": token}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "items" in data
+        assert data["total"] == 1
+        assert data["page"] == 1
+        assert len(data["items"]) == 1
+        assert data["items"][0]["id"] == str(notif1.id)
     finally:
         app.dependency_overrides.clear()

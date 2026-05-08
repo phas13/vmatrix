@@ -546,7 +546,7 @@ async def get_session(
     if session is None:
         raise _session_not_found(instance)
 
-    # Authorization check
+    # authorization check
     if current_user.role == "specialist" and session.specialist_id != current_user.id:
         raise _session_not_found(instance)
 
@@ -559,6 +559,11 @@ async def get_session(
     # Calculate level percentage
     from app.services.level_service import calculate_percentage
     session.level_percentage = await calculate_percentage(session.specialist_id, db)
+
+    # Expunge from session before decryption to prevent accidental flushes of plaintext to DB
+    db.expunge(session)
+    for resp in session.responses:
+        db.expunge(resp)
 
     # Decrypt encrypted fields
     for resp in session.responses:
@@ -649,7 +654,7 @@ async def submit_dispute(
         raise _session_not_found(instance)
 
     if session.specialist_id != current_user.id:
-        raise _forbidden_access(instance)
+        raise _session_not_found(instance)
 
     if session.status != SessionStatus.COMPLETED:
         raise _session_not_completed(instance)
