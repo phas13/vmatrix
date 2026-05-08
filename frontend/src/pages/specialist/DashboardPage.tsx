@@ -13,6 +13,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import { useAuth } from '../../hooks/useAuth'
@@ -37,18 +38,24 @@ function CategoryRow({ row }: { row: CategoryScore }) {
   const showInactivityNudge = days !== null && days > 45
 
   return (
-    <>
-      <TableRow>
-        <TableCell>
+    <TableRow>
+      <TableCell>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           <Typography variant="body2" sx={{ fontWeight: 500 }}>
             {row.categoryName}
           </Typography>
-          {showInactivityNudge && (
-            <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>
-              {t('dashboard.inactivityNudge', { category: row.categoryName })}
-            </Typography>
+          {showInactivityNudge && days !== null && (
+            <Tooltip title={t('dashboard.inactivityNudge', { category: row.categoryName })}>
+              <Chip
+                label={t('dashboard.inactivityNudgeChip', { days })}
+                size="small"
+                color="warning"
+                variant="outlined"
+              />
+            </Tooltip>
           )}
-        </TableCell>
+        </Box>
+      </TableCell>
         <TableCell>
           {row.score === null ? (
             <Typography variant="body2" color="text.secondary">
@@ -87,8 +94,7 @@ function CategoryRow({ row }: { row: CategoryScore }) {
             </Button>
           )}
         </TableCell>
-      </TableRow>
-    </>
+    </TableRow>
   )
 }
 
@@ -168,9 +174,9 @@ export default function DashboardPage() {
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>{t('admin.users.columns.fullName')}</TableCell>
+              <TableCell>{t('dashboard.category')}</TableCell>
               <TableCell>{t('dashboard.overallProgress')}</TableCell>
-              <TableCell>{t('dashboard.lastAssessed', { date: '' }).trim()}</TableCell>
+              <TableCell>{t('dashboard.lastAssessedHeader')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>

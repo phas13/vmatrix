@@ -131,7 +131,7 @@ export default function HistoryPage() {
               >
                 <TableCell>{session.categoryName ?? '—'}</TableCell>
                 <TableCell>{formatDate(session.createdAt)}</TableCell>
-                <TableCell>{session.finalScore !== null ? `${session.finalScore}%` : '—'}</TableCell>
+                <TableCell>{session.finalScore != null ? `${session.finalScore}%` : '—'}</TableCell>
                 <TableCell>
                   <DeltaChip finalScore={session.finalScore} previousScore={session.previousScore} />
                 </TableCell>

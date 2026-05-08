@@ -69,9 +69,13 @@ export default function SessionPage() {
       })
       .catch((err) => {
         // If session was already completed (e.g. parallel request or refresh during evaluation),
-        // just navigate to results.
+        // just navigate to results. Invalidate dashboard/history caches because the actual
+        // evaluation that succeeded happened on a sibling request — local caches are stale.
         if (err.response?.status === 409) {
           reset()
+          queryClient.invalidateQueries({ queryKey: ['sessions', resolvedSessionId] })
+          queryClient.invalidateQueries({ queryKey: ['specialist', 'dashboard', user?.id] })
+          queryClient.invalidateQueries({ queryKey: ['specialist', 'history', user?.id] })
           navigate(`/specialist/session/${resolvedSessionId}/result`)
           return
         }

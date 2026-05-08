@@ -175,7 +175,11 @@
     "disputeResultTitle": "Dispute outcome",
     "disputeResultDecision": "CM decision",
     "disputeResultNote": "CM note",
-    "disputeResultDate": "Resolved on {{date}}"
+    "disputeResultDate": "Resolved on {{date}}",
+    "disputeDecision": {
+      "upheld": "Upheld",
+      "overridden": "Overridden"
+    }
   },
   "history": {
     "title": "Assessment History",
@@ -195,14 +199,26 @@
     "title": "My Progress Dashboard",
     "overallProgress": "Overall Progress",
     "categories": "Competency Categories",
+    "category": "Category",
     "lastAssessed": "Last assessed {{date}}",
+    "lastAssessedHeader": "Last Assessed",
     "notYetAssessed": "Not yet assessed",
     "startAssessment": "Start assessment",
+    "inactivityNudgeChip": "{{days}}d inactive",
     "inactivityNudge": "{{category}} not assessed in 45 days",
     "deltaUp": "↑ from {{previous}}%",
     "deltaDown": "↓ from {{previous}}%",
     "noMatrix": "Your competency matrix is not yet approved. Your CM will review it shortly.",
-    "thresholdReached": "You have reached the promotion threshold — your CM has been notified."
+    "thresholdReached": "You have reached the promotion threshold — your CM has been notified.",
+    "levelProgressAria": "{{level}} level: {{percentage}}% overall progress",
+    "levelProgressAriaCompact": "{{level}}: {{percentage}}%",
+    "thresholdMarkerTitle": "Promotion threshold ({{threshold}}%)"
+  },
+  "levels": {
+    "junior": "Junior",
+    "middle": "Middle",
+    "senior": "Senior",
+    "unknown": "—"
   },
   "notifications": {
     "types": {

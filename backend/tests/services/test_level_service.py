@@ -1,4 +1,3 @@
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -8,22 +7,7 @@ from app.models.matrix import CompetencyCategory, CompetencyMatrix, MatrixStatus
 from app.models.session import AssessmentSession, SessionStatus, SpecialistScore
 from app.models.user import SpecialistLevel, User
 from app.services.level_service import get_dashboard_data
-
-
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _scalars_result(values) -> MagicMock:
-    r = MagicMock()
-    r.scalars.return_value.all.return_value = values
-    return r
-
-
-def _scalar_one_or_none_result(value) -> MagicMock:
-    r = MagicMock()
-    r.scalar_one_or_none.return_value = value
-    return r
+from tests._helpers import _now, _scalar_one_or_none_result, _scalars_result
 
 
 @pytest.mark.asyncio
@@ -87,7 +71,6 @@ async def test_get_dashboard_data_with_scored_categories():
         _scalars_result([cat]),                    # categories query
         _scalars_result([spec_score]),             # specialist scores
         _scalar_one_or_none_result(last_session),  # last session for cat
-        _scalars_result([spec_score]),             # calculate_percentage reuses SpecialistScore
     ]
 
     async def fake_execute(*_args, **_kwargs):
@@ -132,7 +115,6 @@ async def test_get_dashboard_data_unassessed_category():
         _scalar_one_or_none_result(matrix),  # matrix query
         _scalars_result([cat]),               # categories query
         _scalars_result([]),                  # no specialist scores
-        _scalars_result([]),                  # calculate_percentage: no scores → 0
     ]
 
     async def fake_execute(*_args, **_kwargs):

@@ -10,8 +10,9 @@ from app.models.notification import Notification
 from app.models.user import SpecialistLevel, User, UserRole
 from app.schemas.session import CategoryScoreRead, SpecialistDashboardRead
 from main import app
+from tests._helpers import _routed_db, _scalar_one_or_none_result
 
-# Reuse helpers from test_matrix if needed, but for simplicity:
+
 def _make_user(role=UserRole.SPECIALIST):
     u = MagicMock(spec=User)
     u.id = uuid4()
@@ -19,41 +20,38 @@ def _make_user(role=UserRole.SPECIALIST):
     u.is_active = True
     return u
 
+
 def _make_jwt(user):
     from app.core.security import create_access_token
     return create_access_token({"sub": str(user.id), "role": user.role.value})
 
-def _scalar_one_or_none_result(value):
-    r = MagicMock()
-    r.scalar_one_or_none.return_value = value
-    return r
 
-_DASHBOARD_RESPONSE = SpecialistDashboardRead(
-    specialist_level=SpecialistLevel.JUNIOR,
-    overall_percentage=61,
-    category_scores=[
-        CategoryScoreRead(
-            category_id=uuid4(),
-            category_name="Kubernetes",
-            score=61,
-            previous_score=55,
-            last_assessed_at=None,
-        )
-    ],
-)
+def _make_dashboard_response() -> SpecialistDashboardRead:
+    return SpecialistDashboardRead(
+        specialist_level=SpecialistLevel.JUNIOR,
+        overall_percentage=61,
+        category_scores=[
+            CategoryScoreRead(
+                category_id=uuid4(),
+                category_name="Kubernetes",
+                score=61,
+                previous_score=55,
+                last_assessed_at=None,
+            )
+        ],
+    )
 
 
 @pytest.mark.asyncio
 async def test_get_specialist_dashboard_returns_200_for_specialist(async_client: AsyncClient):
     user = _make_user(role=UserRole.SPECIALIST)
-    from tests.api.test_matrix import _routed_db
     override, mock_db, _ = _routed_db(_scalar_one_or_none_result(user))
     mock_db.get = AsyncMock(return_value=user)
     app.dependency_overrides[get_db_session] = override
 
     try:
         token = _make_jwt(user)
-        with patch("app.services.level_service.get_dashboard_data", AsyncMock(return_value=_DASHBOARD_RESPONSE)):
+        with patch("app.services.level_service.get_dashboard_data", AsyncMock(return_value=_make_dashboard_response())):
             response = await async_client.get(
                 "/api/v1/users/me/dashboard",
                 cookies={"access_token": token},
@@ -64,7 +62,7 @@ async def test_get_specialist_dashboard_returns_200_for_specialist(async_client:
         assert data["specialist_level"] == "junior"
         assert len(data["category_scores"]) == 1
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_db_session, None)
 
 
 @pytest.mark.parametrize("role", [UserRole.CM, UserRole.HR, UserRole.ADMIN])
@@ -73,7 +71,6 @@ async def test_get_specialist_dashboard_returns_403_for_non_specialist(
     async_client: AsyncClient, role: UserRole
 ):
     user = _make_user(role=role)
-    from tests.api.test_matrix import _routed_db
     override, _, _ = _routed_db(_scalar_one_or_none_result(user))
     app.dependency_overrides[get_db_session] = override
 
@@ -85,7 +82,7 @@ async def test_get_specialist_dashboard_returns_403_for_non_specialist(
         )
         assert response.status_code == 403
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_db_session, None)
 
 
 @pytest.mark.asyncio
@@ -98,7 +95,6 @@ async def test_mark_notification_read_idempotent(async_client: AsyncClient):
     notification.read_at = None
 
     # Mock DB calls: Each call needs (1. user lookup, 2. notification lookup)
-    from tests.api.test_matrix import _routed_db
     override, _, _ = _routed_db(
         _scalar_one_or_none_result(user),         # 1st call: user
         _scalar_one_or_none_result(notification), # 1st call: notification
@@ -128,7 +124,7 @@ async def test_mark_notification_read_idempotent(async_client: AsyncClient):
         assert response.status_code == 200
         assert notification.read_at == first_read_at
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_db_session, None)
 
 
 @pytest.mark.asyncio
@@ -147,8 +143,7 @@ async def test_get_unread_notifications_paginated(async_client: AsyncClient):
 
     # Mocking rows: (notification_obj, total_count)
     rows = [(notif1, 1)]
-    
-    from tests.api.test_matrix import _routed_db
+
     mock_result = MagicMock()
     mock_result.all.return_value = rows
     
@@ -172,4 +167,4 @@ async def test_get_unread_notifications_paginated(async_client: AsyncClient):
         assert len(data["items"]) == 1
         assert data["items"][0]["id"] == str(notif1.id)
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_db_session, None)

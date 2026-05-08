@@ -103,11 +103,17 @@ export interface SpecialistDashboard {
   categoryScores: CategoryScore[]
 }
 
+export type SessionListItemStatus =
+  | 'in_progress'
+  | 'evaluation_pending'
+  | 'completed'
+  | 'abandoned'
+
 export interface SessionListItem {
   id: string
   categoryId: string
   categoryName: string | null
-  status: string
+  status: SessionListItemStatus
   finalScore: number | null
   previousScore: number | null
   createdAt: string

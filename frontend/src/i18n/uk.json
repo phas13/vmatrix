@@ -177,7 +177,11 @@
     "disputeResultTitle": "Результат спору",
     "disputeResultDecision": "Рішення КМ",
     "disputeResultNote": "Примітка КМ",
-    "disputeResultDate": "Вирішено {{date}}"
+    "disputeResultDate": "Вирішено {{date}}",
+    "disputeDecision": {
+      "upheld": "Підтверджено",
+      "overridden": "Скасовано"
+    }
   },
   "history": {
     "title": "Історія оцінювань",
@@ -197,14 +201,26 @@
     "title": "Мій прогрес",
     "overallProgress": "Загальний прогрес",
     "categories": "Компетентності",
+    "category": "Категорія",
     "lastAssessed": "Остання оцінка {{date}}",
+    "lastAssessedHeader": "Остання оцінка",
     "notYetAssessed": "Ще не оцінювалось",
     "startAssessment": "Почати оцінку",
+    "inactivityNudgeChip": "{{days}} дн. без оцінок",
     "inactivityNudge": "{{category}} не оцінювалась 45 днів",
     "deltaUp": "↑ з {{previous}}%",
     "deltaDown": "↓ з {{previous}}%",
     "noMatrix": "Вашу матрицю компетенцій ще не затверджено. Ваш CM розгляне її найближчим часом.",
-    "thresholdReached": "Ви досягли порогу підвищення — вашого CM повідомлено."
+    "thresholdReached": "Ви досягли порогу підвищення — вашого CM повідомлено.",
+    "levelProgressAria": "Рівень {{level}}: загальний прогрес {{percentage}}%",
+    "levelProgressAriaCompact": "{{level}}: {{percentage}}%",
+    "thresholdMarkerTitle": "Поріг підвищення ({{threshold}}%)"
+  },
+  "levels": {
+    "junior": "Junior",
+    "middle": "Middle",
+    "senior": "Senior",
+    "unknown": "—"
   },
   "notifications": {
     "types": {

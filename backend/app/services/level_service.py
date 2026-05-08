@@ -53,6 +53,7 @@ async def get_dashboard_data(specialist_id: UUID, db: AsyncSession) -> Specialis
     scores: dict[UUID, SpecialistScore] = {s.category_id: s for s in scores_result.scalars().all()}
 
     category_scores: list[CategoryScoreRead] = []
+    in_matrix_score_values: list[int] = []
     for cat in categories:
         spec_score = scores.get(cat.id)
         if spec_score is None:
@@ -82,10 +83,17 @@ async def get_dashboard_data(specialist_id: UUID, db: AsyncSession) -> Specialis
                 previous_score=last_session.previous_score if last_session else None,
                 last_assessed_at=spec_score.last_assessed_at,
             ))
+            in_matrix_score_values.append(spec_score.score)
+
+    overall_percentage = (
+        round(sum(in_matrix_score_values) / len(in_matrix_score_values))
+        if in_matrix_score_values
+        else 0
+    )
 
     return SpecialistDashboardRead(
         specialist_level=specialist_level,
-        overall_percentage=await calculate_percentage(specialist_id, db),
+        overall_percentage=overall_percentage,
         category_scores=category_scores,
     )
 

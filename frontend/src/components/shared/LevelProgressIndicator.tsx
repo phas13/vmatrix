@@ -1,5 +1,6 @@
-import { Box, Chip, LinearProgress, Typography } from '@mui/material'
-import { styled, useTheme } from '@mui/material/styles'
+import { Box, Chip, LinearProgress, Tooltip, Typography } from '@mui/material'
+import { alpha, styled, useTheme } from '@mui/material/styles'
+import { useTranslation } from 'react-i18next'
 import type { SpecialistLevel } from '../../types/domain'
 
 const THRESHOLD = 90
@@ -21,29 +22,23 @@ export default function LevelProgressIndicator({
   variant = 'large',
 }: LevelProgressIndicatorProps) {
   const theme = useTheme()
-  const isThresholdReached = percentage >= THRESHOLD
+  const { t } = useTranslation()
+  const safePercentage = Math.min(100, Math.max(0, percentage))
+  const isThresholdReached = safePercentage >= THRESHOLD
   const barColor = isThresholdReached ? theme.palette.success.main : theme.palette.primary.main
-  const displayLevel = level ?? '—'
+  const levelLabel = level ? t(`levels.${level}`) : t('levels.unknown')
 
   if (variant === 'compact') {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <LevelBadge label={displayLevel} size="small" />
-        <Box
-          sx={{ flex: 1 }}
-          role="progressbar"
-          aria-valuenow={percentage}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={`${displayLevel}: ${percentage}%`}
-        >
-          <LinearProgress
-            variant="determinate"
-            value={percentage}
-            sx={{ '& .MuiLinearProgress-bar': { bgcolor: barColor } }}
-          />
-        </Box>
-        <Typography variant="caption">{percentage}%</Typography>
+        <LevelBadge label={levelLabel} size="small" />
+        <LinearProgress
+          variant="determinate"
+          value={safePercentage}
+          aria-label={t('dashboard.levelProgressAriaCompact', { level: levelLabel, percentage: safePercentage })}
+          sx={{ flex: 1, '& .MuiLinearProgress-bar': { bgcolor: barColor } }}
+        />
+        <Typography variant="caption">{safePercentage}%</Typography>
       </Box>
     )
   }
@@ -54,11 +49,11 @@ export default function LevelProgressIndicator({
         p: 3,
         border: `1px solid ${isThresholdReached ? theme.palette.success.light : theme.palette.divider}`,
         borderRadius: 2,
-        bgcolor: isThresholdReached ? theme.palette.success.light + '22' : 'background.paper',
+        bgcolor: isThresholdReached ? alpha(theme.palette.success.light, 0.13) : 'background.paper',
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-        <LevelBadge label={displayLevel} color={isThresholdReached ? 'success' : 'default'} />
+        <LevelBadge label={levelLabel} color={isThresholdReached ? 'success' : 'default'} />
         <Typography
           variant="h3"
           sx={{
@@ -66,40 +61,36 @@ export default function LevelProgressIndicator({
             color: isThresholdReached ? 'success.main' : 'text.primary',
           }}
         >
-          {percentage}%
+          {safePercentage}%
         </Typography>
       </Box>
       <Box sx={{ position: 'relative' }}>
-        <Box
-          role="progressbar"
-          aria-valuenow={percentage}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={`${displayLevel} level: ${percentage}% overall progress`}
-        >
-          <LinearProgress
-            variant="determinate"
-            value={percentage}
+        <LinearProgress
+          variant="determinate"
+          value={safePercentage}
+          aria-label={t('dashboard.levelProgressAria', { level: levelLabel, percentage: safePercentage })}
+          sx={{
+            height: 12,
+            borderRadius: 6,
+            bgcolor: theme.palette.action.hover,
+            '& .MuiLinearProgress-bar': { bgcolor: barColor, borderRadius: 6 },
+          }}
+        />
+        <Tooltip title={t('dashboard.thresholdMarkerTitle', { threshold: THRESHOLD })}>
+          <Box
+            role="img"
             sx={{
-              height: 12,
-              borderRadius: 6,
-              bgcolor: theme.palette.action.hover,
-              '& .MuiLinearProgress-bar': { bgcolor: barColor, borderRadius: 6 },
+              position: 'absolute',
+              top: 0,
+              left: `${THRESHOLD}%`,
+              width: 2,
+              height: '100%',
+              bgcolor: theme.palette.warning.main,
+              borderRadius: 1,
+              cursor: 'help',
             }}
           />
-        </Box>
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: `${THRESHOLD}%`,
-            width: 2,
-            height: '100%',
-            bgcolor: theme.palette.warning.main,
-            borderRadius: 1,
-          }}
-          title="Promotion threshold (90%)"
-        />
+        </Tooltip>
       </Box>
     </Box>
   )

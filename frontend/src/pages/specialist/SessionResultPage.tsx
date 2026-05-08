@@ -14,7 +14,7 @@ import { useSessionStore } from '../../store/sessionStore'
 export default function SessionResultPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
-  const location = useLocation()
+  const location = useLocation() as { state: { from?: 'history'; levelPercentage?: number } | null }
   const { t } = useTranslation()
   const theme = useTheme()
   const queryClient = useQueryClient()
@@ -138,21 +138,25 @@ export default function SessionResultPage() {
       {session.dispute && session.dispute.status === 'resolved' && (
         <Paper variant="outlined" sx={{ p: 3, mt: 4, borderLeft: `3px solid ${theme.palette.warning.main}` }}>
           <Typography variant="subtitle2" gutterBottom>{t('session.disputeResultTitle')}</Typography>
-          <Typography variant="body2" sx={{ mb: 1 }}>
-            <strong>{t('session.disputeResultDecision')}:</strong>{' '}
-            {session.dispute.cmDecision}
-          </Typography>
+          {session.dispute.cmDecision && (
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              <strong>{t('session.disputeResultDecision')}:</strong>{' '}
+              {t(`session.disputeDecision.${session.dispute.cmDecision}`, { defaultValue: session.dispute.cmDecision })}
+            </Typography>
+          )}
           {session.dispute.cmNote && (
             <Typography variant="body2" sx={{ mb: 1 }}>
               <strong>{t('session.disputeResultNote')}:</strong>{' '}
               {session.dispute.cmNote}
             </Typography>
           )}
-          <Typography variant="caption" color="text.secondary">
-            {t('session.disputeResultDate', {
-              date: new Date(session.dispute.resolvedAt ?? '').toLocaleDateString()
-            })}
-          </Typography>
+          {session.dispute.resolvedAt && (
+            <Typography variant="caption" color="text.secondary">
+              {t('session.disputeResultDate', {
+                date: new Date(session.dispute.resolvedAt).toLocaleDateString()
+              })}
+            </Typography>
+          )}
         </Paper>
       )}
 
