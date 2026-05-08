@@ -1,14 +1,16 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db_session, require_csrf, require_role
 from app.models.user import User, UserRole
+from app.schemas.pagination import PaginatedResponse
 from app.schemas.session import (
     EvaluateSessionResponse,
     SessionCreateRequest,
+    SessionListItemRead,
     SessionResultRead,
     SubmitAnswerRequest,
     SubmitAnswerResponse,
@@ -18,6 +20,17 @@ from app.schemas.session import (
 from app.services import session_service
 
 router = APIRouter()
+
+
+@router.get("", response_model=PaginatedResponse[SessionListItemRead])
+async def list_sessions(
+    request: Request,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_role(UserRole.SPECIALIST)),
+) -> PaginatedResponse[SessionListItemRead]:
+    return await session_service.list_sessions(current_user.id, page, per_page, db)
 
 
 @router.post("", status_code=200)

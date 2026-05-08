@@ -62,6 +62,7 @@ export default function SessionPage() {
         reset()
         queryClient.invalidateQueries({ queryKey: ['sessions', resolvedSessionId] })
         queryClient.invalidateQueries({ queryKey: ['specialist', 'dashboard', user?.id] })
+        queryClient.invalidateQueries({ queryKey: ['specialist', 'history', user?.id] })
         navigate(`/specialist/session/${resolvedSessionId}/result`, {
           state: { levelPercentage: result.levelPercentage },
         })

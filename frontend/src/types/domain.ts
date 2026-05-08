@@ -102,3 +102,15 @@ export interface SpecialistDashboard {
   overallPercentage: number
   categoryScores: CategoryScore[]
 }
+
+export interface SessionListItem {
+  id: string
+  categoryId: string
+  categoryName: string | null
+  status: string
+  finalScore: number | null
+  previousScore: number | null
+  createdAt: string
+  updatedAt: string
+  dispute: SessionDispute | null
+}

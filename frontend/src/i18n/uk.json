@@ -172,7 +172,26 @@
     "disputeExplanationPlaceholder": "Поясніть, чому вважаєте оцінку неточною. Вкажіть конкретні питання або оцінки, з якими ви не згодні.",
     "disputeSubmit": "Подати скаргу",
     "disputeSubmitSuccess": "Скаргу подано — ваш КМ її розгляне",
-    "disputeAlreadySubmitted": "Скаргу для цієї сесії вже подано"
+    "disputeAlreadySubmitted": "Скаргу для цієї сесії вже подано",
+    "backToHistory": "До історії",
+    "disputeResultTitle": "Результат спору",
+    "disputeResultDecision": "Рішення КМ",
+    "disputeResultNote": "Примітка КМ",
+    "disputeResultDate": "Вирішено {{date}}"
+  },
+  "history": {
+    "title": "Історія оцінювань",
+    "category": "Категорія",
+    "date": "Дата",
+    "score": "Оцінка",
+    "change": "Зміна",
+    "dispute": "Спір",
+    "empty": "Ще немає сесій — розпочніть перше оцінювання",
+    "startAssessment": "Розпочати оцінювання",
+    "deltaUp": "{{delta}}% ↑",
+    "deltaDown": "{{delta}}% ↓",
+    "disputeOpen": "Оскаржено",
+    "disputeResolved": "Вирішено"
   },
   "dashboard": {
     "title": "Мій прогрес",

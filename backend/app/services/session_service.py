@@ -1,11 +1,12 @@
 import json
 import logging
+import math
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,6 +29,9 @@ from app.models.user import User, UserRole
 from app.providers.base import QAEntry, QuestionGenerationContext, ResponseEvaluationContext, SubItemInfo
 from app.providers.factory import get_llm_provider
 from app.services.prompt_builder import build_question_generation_prompt, build_response_evaluation_prompt
+
+from app.schemas.pagination import PaginatedResponse
+from app.schemas.session import SessionDisputeRead, SessionListItemRead
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +206,67 @@ def _session_not_completed(instance: str) -> ProblemHTTPException:
             "detail": "Disputes can only be submitted for completed sessions.",
             "instance": instance,
         },
+    )
+
+
+# ─── list_sessions ────────────────────────────────────────────────────────────
+
+async def list_sessions(
+    specialist_id: UUID,
+    page: int,
+    per_page: int,
+    db: AsyncSession,
+) -> PaginatedResponse[SessionListItemRead]:
+    base_filter = (
+        AssessmentSession.specialist_id == specialist_id,
+        AssessmentSession.status == SessionStatus.COMPLETED,
+    )
+
+    count_result = await db.execute(
+        select(func.count(AssessmentSession.id)).where(*base_filter)
+    )
+    total = count_result.scalar_one()
+
+    sessions_result = await db.execute(
+        select(AssessmentSession)
+        .where(*base_filter)
+        .options(selectinload(AssessmentSession.dispute))
+        .order_by(AssessmentSession.created_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+    )
+    sessions = sessions_result.scalars().all()
+
+    category_ids = {s.category_id for s in sessions}
+    cat_map: dict[UUID, str] = {}
+    if category_ids:
+        cats_result = await db.execute(
+            select(CompetencyCategory).where(CompetencyCategory.id.in_(category_ids))
+        )
+        cat_map = {c.id: c.name for c in cats_result.scalars().all()}
+
+    items = [
+        SessionListItemRead(
+            id=s.id,
+            category_id=s.category_id,
+            category_name=cat_map.get(s.category_id),
+            status=s.status,
+            final_score=s.final_score,
+            previous_score=s.previous_score,
+            created_at=s.created_at,
+            updated_at=s.updated_at,
+            dispute=SessionDisputeRead.model_validate(s.dispute) if s.dispute else None,
+        )
+        for s in sessions
+    ]
+
+    pages = math.ceil(total / per_page) if total > 0 else 1
+    return PaginatedResponse[SessionListItemRead](
+        items=items,
+        total=total,
+        page=page,
+        per_page=per_page,
+        pages=pages,
     )
 
 

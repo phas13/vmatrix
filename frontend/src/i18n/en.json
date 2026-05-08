@@ -170,7 +170,26 @@
     "disputeExplanationPlaceholder": "Explain why you believe the score is inaccurate. Be specific about which questions or evaluations you disagree with.",
     "disputeSubmit": "Submit dispute",
     "disputeSubmitSuccess": "Dispute submitted — your CM will review it",
-    "disputeAlreadySubmitted": "A dispute has already been submitted for this session"
+    "disputeAlreadySubmitted": "A dispute has already been submitted for this session",
+    "backToHistory": "Back to History",
+    "disputeResultTitle": "Dispute outcome",
+    "disputeResultDecision": "CM decision",
+    "disputeResultNote": "CM note",
+    "disputeResultDate": "Resolved on {{date}}"
+  },
+  "history": {
+    "title": "Assessment History",
+    "category": "Category",
+    "date": "Date",
+    "score": "Score",
+    "change": "Change",
+    "dispute": "Dispute",
+    "empty": "No sessions yet — start your first assessment",
+    "startAssessment": "Start assessment",
+    "deltaUp": "{{delta}}% ↑",
+    "deltaDown": "{{delta}}% ↓",
+    "disputeOpen": "Disputed",
+    "disputeResolved": "Resolved"
   },
   "dashboard": {
     "title": "My Progress Dashboard",

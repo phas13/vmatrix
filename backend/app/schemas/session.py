@@ -145,6 +145,20 @@ class SessionResultRead(BaseModel):
     updated_at: datetime
 
 
+class SessionListItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    category_id: UUID
+    category_name: str | None = None
+    status: SessionStatus
+    final_score: int | None
+    previous_score: int | None
+    created_at: datetime
+    updated_at: datetime
+    dispute: SessionDisputeRead | None = None
+
+
 class CategoryScoreRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

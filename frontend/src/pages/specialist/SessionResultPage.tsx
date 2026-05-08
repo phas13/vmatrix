@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
@@ -14,10 +14,13 @@ import { useSessionStore } from '../../store/sessionStore'
 export default function SessionResultPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { t } = useTranslation()
   const theme = useTheme()
   const queryClient = useQueryClient()
   const { activeSessionId } = useSessionStore()
+
+  const fromHistory = location.state?.from === 'history'
 
   const resolvedSessionId = sessionId ?? activeSessionId ?? ''
 
@@ -84,6 +87,14 @@ export default function SessionResultPage() {
 
   return (
     <Box sx={{ maxWidth: 800, mx: 'auto', px: 3, py: 4 }}>
+      {fromHistory && (
+        <Box sx={{ mb: 2 }}>
+          <Button variant="text" size="small" onClick={() => navigate('/specialist/history')}>
+            ← {t('session.backToHistory')}
+          </Button>
+        </Box>
+      )}
+
       {session.finalScore !== null && session.strengths && session.areasForGrowth && (
         <AssessmentResultReveal
           score={session.finalScore}
@@ -123,6 +134,27 @@ export default function SessionResultPage() {
           </Paper>
         )
       })}
+
+      {session.dispute && session.dispute.status === 'resolved' && (
+        <Paper variant="outlined" sx={{ p: 3, mt: 4, borderLeft: `3px solid ${theme.palette.warning.main}` }}>
+          <Typography variant="subtitle2" gutterBottom>{t('session.disputeResultTitle')}</Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            <strong>{t('session.disputeResultDecision')}:</strong>{' '}
+            {session.dispute.cmDecision}
+          </Typography>
+          {session.dispute.cmNote && (
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              <strong>{t('session.disputeResultNote')}:</strong>{' '}
+              {session.dispute.cmNote}
+            </Typography>
+          )}
+          <Typography variant="caption" color="text.secondary">
+            {t('session.disputeResultDate', {
+              date: new Date(session.dispute.resolvedAt ?? '').toLocaleDateString()
+            })}
+          </Typography>
+        </Paper>
+      )}
 
       {session.status === 'COMPLETED' && session.dispute === null && (
         <Box sx={{ mt: 4 }}>

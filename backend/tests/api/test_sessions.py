@@ -20,6 +20,20 @@ from app.providers.base import AssessmentQuestionDraft, QuestionFeedback, Sessio
 from main import app
 
 
+def _scalars_all_result_simple(values: list) -> MagicMock:
+    r = MagicMock()
+    scalars = MagicMock()
+    scalars.all.return_value = values
+    r.scalars.return_value = scalars
+    return r
+
+
+def _scalar_one_result(value) -> MagicMock:
+    r = MagicMock()
+    r.scalar_one.return_value = value
+    return r
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -1070,3 +1084,161 @@ async def test_submit_dispute_wrong_owner():
 
     assert exc_info.value.status_code == 404
     assert "session-not-found" in exc_info.value.detail["type"]
+
+
+# ─── Story 5.2: list_sessions ──────────────────────────────────────────────────
+
+def _make_completed_session(specialist: MagicMock) -> MagicMock:
+    s = MagicMock(spec=AssessmentSession)
+    s.id = uuid4()
+    s.specialist_id = specialist.id
+    s.category_id = uuid4()
+    s.status = SessionStatus.COMPLETED
+    s.final_score = 75
+    s.previous_score = 60
+    s.created_at = _now()
+    s.updated_at = _now()
+    s.dispute = None
+    return s
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_returns_paginated_completed_sessions(async_client, mock_llm_provider):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    token = _make_jwt(specialist)
+
+    completed_session = _make_completed_session(specialist)
+
+    mock_db = AsyncMock()
+    count_mock = _scalar_one_result(1)
+    sessions_mock = _scalars_all_result_simple([completed_session])
+    cats_mock = _scalars_all_result_simple([])
+    mock_db.execute = AsyncMock(side_effect=[
+        _scalar_one_or_none_result(specialist),  # get_current_user
+        count_mock,
+        sessions_mock,
+        cats_mock,
+    ])
+
+    async def override():
+        yield mock_db
+
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        resp = await async_client.get(
+            '/api/v1/sessions',
+            cookies={'access_token': token},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body['total'] == 1
+    assert len(body['items']) == 1
+    assert body['items'][0]['final_score'] == 75
+    assert body['page'] == 1
+    assert body['per_page'] == 20
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_empty_for_no_sessions(async_client, mock_llm_provider):
+    specialist = _make_user(role=UserRole.SPECIALIST)
+    token = _make_jwt(specialist)
+
+    mock_db = AsyncMock()
+    count_mock = _scalar_one_result(0)
+    sessions_mock = _scalars_all_result_simple([])
+    mock_db.execute = AsyncMock(side_effect=[
+        _scalar_one_or_none_result(specialist),
+        count_mock,
+        sessions_mock,
+    ])
+
+    async def override():
+        yield mock_db
+
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        resp = await async_client.get(
+            '/api/v1/sessions',
+            cookies={'access_token': token},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body['items'] == []
+    assert body['total'] == 0
+    assert body['page'] == 1
+    assert body['per_page'] == 20
+    assert body['pages'] == 1
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_forbidden_for_cm_and_hr(async_client, mock_llm_provider):
+    for role in (UserRole.CM, UserRole.HR):
+        user = _make_user(role=role)
+        token = _make_jwt(user)
+
+        mock_db = AsyncMock()
+        mock_db.execute = AsyncMock(return_value=_scalar_one_or_none_result(user))
+
+        async def override():
+            yield mock_db
+
+        app.dependency_overrides[get_db_session] = override
+
+        try:
+            resp = await async_client.get(
+                '/api/v1/sessions',
+                cookies={'access_token': token},
+            )
+        finally:
+            app.dependency_overrides.pop(get_db_session, None)
+
+        assert resp.status_code == 403, f"Expected 403 for role {role}, got {resp.status_code}"
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_isolates_specialist_data(async_client, mock_llm_provider):
+    specialist_a = _make_user(role=UserRole.SPECIALIST)
+    specialist_b = _make_user(role=UserRole.SPECIALIST)
+    token_a = _make_jwt(specialist_a)
+
+    session_a = _make_completed_session(specialist_a)
+    session_b = _make_completed_session(specialist_b)
+    _ = session_b  # created but should NOT appear in specialist_a's results
+
+    mock_db = AsyncMock()
+    count_mock = _scalar_one_result(1)
+    sessions_mock = _scalars_all_result_simple([session_a])
+    cats_mock = _scalars_all_result_simple([])
+    mock_db.execute = AsyncMock(side_effect=[
+        _scalar_one_or_none_result(specialist_a),
+        count_mock,
+        sessions_mock,
+        cats_mock,
+    ])
+
+    async def override():
+        yield mock_db
+
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        resp = await async_client.get(
+            '/api/v1/sessions',
+            cookies={'access_token': token_a},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body['total'] == 1
+    assert len(body['items']) == 1
+    assert body['items'][0]['id'] == str(session_a.id)

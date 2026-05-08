@@ -11,6 +11,7 @@ import PlaceholderPage from './pages/PlaceholderPage';
 import UsersPage from './pages/admin/UsersPage';
 import SettingsPage from './pages/admin/SettingsPage';
 import DashboardPage from './pages/specialist/DashboardPage'
+import HistoryPage from './pages/specialist/HistoryPage'
 import MatrixPage from './pages/specialist/MatrixPage'
 import SessionPage from './pages/specialist/SessionPage'
 import SessionResultPage from './pages/specialist/SessionResultPage'
@@ -61,7 +62,7 @@ export const router = createBrowserRouter([
         children: [
           { path: 'dashboard', element: <DashboardPage /> },
           { path: 'matrix', element: <MatrixPage /> },
-          { path: 'history', element: <PlaceholderPage title="Assessment History" /> },
+          { path: 'history', element: <HistoryPage /> },
         ],
       },
       {

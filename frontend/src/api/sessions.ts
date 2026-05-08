@@ -1,6 +1,6 @@
 import { apiClient, transformKeys, readCsrfCookie } from './client'
-import type { AssessmentSession, AssessmentQuestion } from '../types/domain'
-import type { EvaluateSessionResponse, SubmitAnswerResponse, SubmitDisputeResponse } from '../types/api'
+import type { AssessmentSession, AssessmentQuestion, SessionListItem } from '../types/domain'
+import type { EvaluateSessionResponse, PaginatedResponse, SubmitAnswerResponse, SubmitDisputeResponse } from '../types/api'
 
 export interface SessionStreamResult {
   sessionId: string
@@ -85,6 +85,16 @@ export async function createSessionStream(
   }
 
   return { sessionId, categoryName, level, totalQuestions, questions }
+}
+
+export async function getSessions(
+  page = 1,
+  perPage = 20,
+): Promise<PaginatedResponse<SessionListItem>> {
+  const res = await apiClient.get<PaginatedResponse<SessionListItem>>('/sessions', {
+    params: { page, per_page: perPage },
+  })
+  return res.data
 }
 
 export async function getSession(sessionId: string): Promise<AssessmentSession> {
