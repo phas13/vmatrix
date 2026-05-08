@@ -750,7 +750,9 @@ async def test_evaluate_session_success():
         _scalar_one_or_none_result(session),    # session FOR UPDATE
         _scalar_one_or_none_result(category),   # category lookup
         _scalar_one_or_none_result(None),        # no prior SpecialistScore
-        _scalars_all_result([new_score]),        # calculate_percentage
+        _scalars_all_result([new_score]),        # calculate_percentage (step 10)
+        _scalars_all_result([new_score]),        # check_threshold → calculate_percentage
+        _scalar_one_or_none_result(None),        # check_threshold → SystemSettings (fallback 90, 78 < 90 → False)
     )
 
     mock_provider = AsyncMock()

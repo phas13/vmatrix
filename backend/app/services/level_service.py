@@ -99,5 +99,37 @@ async def get_dashboard_data(specialist_id: UUID, db: AsyncSession) -> Specialis
 
 
 async def check_threshold(specialist_id: UUID, db: AsyncSession) -> bool:
-    """Story 5.3: check if specialist reached promotion threshold."""
-    raise NotImplementedError("Implemented in Story 5.3")
+    from app.models.notification import Notification, NotificationType
+    from app.models.system_settings import SystemSettings
+
+    percentage = await calculate_percentage(specialist_id, db)
+
+    settings_result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    settings = settings_result.scalar_one_or_none()
+    threshold = settings.promotion_threshold if settings else 90
+
+    if percentage < threshold:
+        return False
+
+    specialist = await db.get(User, specialist_id)
+    if not specialist or not specialist.cm_id:
+        return True
+
+    existing_result = await db.execute(
+        select(Notification).where(
+            Notification.user_id == specialist.cm_id,
+            Notification.type == NotificationType.PROMOTION_SUGGESTION,
+            Notification.is_read.is_(False),
+            Notification.content.contains(str(specialist_id)),
+        )
+    )
+    if existing_result.scalar_one_or_none():
+        return True
+
+    notification = Notification(
+        user_id=specialist.cm_id,
+        type=NotificationType.PROMOTION_SUGGESTION,
+        content=f"Specialist {specialist.full_name} has reached the promotion threshold — review pending [{specialist_id}]",
+    )
+    db.add(notification)
+    return True

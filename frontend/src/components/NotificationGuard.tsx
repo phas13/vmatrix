@@ -5,7 +5,21 @@ import { useTranslation } from 'react-i18next';
 import { getUnreadNotifications, markNotificationRead } from '../api/users';
 import { useAuth } from '../hooks/useAuth';
 
-const HANDLED_TYPES = ['credential_reset', 'matrix_approved', 'matrix_pending_review']
+const HANDLED_TYPES = [
+  'credential_reset',
+  'matrix_approved',
+  'matrix_pending_review',
+  'dispute_resolved',
+  'promotion_approved',
+  'promotion_rejected',
+  'new_cm_assignment',
+  'promotion_suggestion',
+]
+
+const SEVERITY_MAP: Record<string, 'success' | 'info' | 'warning' | 'error'> = {
+  promotion_approved: 'success',
+  promotion_rejected: 'warning',
+}
 
 export default function NotificationGuard({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -51,9 +65,11 @@ export default function NotificationGuard({ children }: { children: React.ReactN
     }
   };
 
-  const displayMessage = current 
+  const displayMessage = current
     ? t(`notifications.types.${current.type}`, { defaultValue: current.message })
     : '';
+
+  const severity = current ? (SEVERITY_MAP[current.type] ?? 'info') : 'info';
 
   return (
     <>
@@ -64,7 +80,7 @@ export default function NotificationGuard({ children }: { children: React.ReactN
         onClose={handleClose}
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
       >
-        <Alert severity="info" onClose={handleClose} variant="filled" sx={{ width: '100%' }}>
+        <Alert severity={severity} onClose={handleClose} variant="filled" sx={{ width: '100%' }}>
           {displayMessage}
         </Alert>
       </Snackbar>

@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import type { PaginatedResponse } from '../types/api';
 import type { SpecialistDashboard } from '../types/domain';
 
 export interface Notification {
@@ -10,8 +11,8 @@ export interface Notification {
 }
 
 export async function getUnreadNotifications(): Promise<Notification[]> {
-  const response = await apiClient.get<Notification[]>('/users/me/notifications/unread');
-  return response.data;
+  const response = await apiClient.get<PaginatedResponse<Notification>>('/users/me/notifications/unread');
+  return response.data.items;
 }
 
 export async function markNotificationRead(notificationId: string): Promise<void> {

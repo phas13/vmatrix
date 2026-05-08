@@ -573,6 +573,8 @@ async def evaluate_session(
     session.strengths = encrypt_field(eval_result.strengths or "")
     session.areas_for_growth = encrypt_field(eval_result.areas_for_growth or "")
     db.add(llm_log)
+    from app.services.level_service import check_threshold
+    await check_threshold(current_user.id, db)
     await db.commit()
 
     return {

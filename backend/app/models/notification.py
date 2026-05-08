@@ -20,6 +20,10 @@ class NotificationType(str, enum.Enum):
     MATRIX_PENDING_REVIEW = "matrix_pending_review"
     MATRIX_APPROVED = "matrix_approved"
     DISPUTE_SUBMITTED = "dispute_submitted"
+    DISPUTE_RESOLVED = "dispute_resolved"
+    PROMOTION_SUGGESTION = "promotion_suggestion"
+    PROMOTION_APPROVED = "promotion_approved"
+    PROMOTION_REJECTED = "promotion_rejected"
 
 
 class Notification(Base, UUIDPrimaryKeyMixin, TimestampMixin):

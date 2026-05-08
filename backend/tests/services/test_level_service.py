@@ -4,9 +4,11 @@ from uuid import uuid4
 import pytest
 
 from app.models.matrix import CompetencyCategory, CompetencyMatrix, MatrixStatus
+from app.models.notification import Notification, NotificationType
 from app.models.session import AssessmentSession, SessionStatus, SpecialistScore
+from app.models.system_settings import SystemSettings
 from app.models.user import SpecialistLevel, User
-from app.services.level_service import get_dashboard_data
+from app.services.level_service import check_threshold, get_dashboard_data
 from tests._helpers import _now, _scalar_one_or_none_result, _scalars_result
 
 
@@ -131,3 +133,127 @@ async def test_get_dashboard_data_unassessed_category():
     assert cs.score is None
     assert cs.previous_score is None
     assert cs.last_assessed_at is None
+
+
+# ─── check_threshold tests ────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_check_threshold_below_threshold_returns_false():
+    specialist_id = uuid4()
+
+    score = MagicMock(spec=SpecialistScore)
+    score.score = 80
+
+    settings = MagicMock(spec=SystemSettings)
+    settings.promotion_threshold = 90
+
+    db = AsyncMock()
+    execute_results = [
+        _scalars_result([score]),              # calculate_percentage
+        _scalar_one_or_none_result(settings),  # SystemSettings
+    ]
+    db.execute = AsyncMock(side_effect=lambda *a, **k: execute_results.pop(0))
+
+    result = await check_threshold(specialist_id, db)
+
+    assert result is False
+    db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_threshold_reached_no_cm_returns_true():
+    specialist_id = uuid4()
+
+    score = MagicMock(spec=SpecialistScore)
+    score.score = 95
+
+    settings = MagicMock(spec=SystemSettings)
+    settings.promotion_threshold = 90
+
+    specialist = MagicMock(spec=User)
+    specialist.cm_id = None
+
+    db = AsyncMock()
+    db.get.return_value = specialist
+    execute_results = [
+        _scalars_result([score]),              # calculate_percentage
+        _scalar_one_or_none_result(settings),  # SystemSettings
+    ]
+    db.execute = AsyncMock(side_effect=lambda *a, **k: execute_results.pop(0))
+
+    result = await check_threshold(specialist_id, db)
+
+    assert result is True
+    db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_check_threshold_reached_creates_cm_notification():
+    specialist_id = uuid4()
+    cm_id = uuid4()
+
+    score = MagicMock(spec=SpecialistScore)
+    score.score = 92
+
+    settings = MagicMock(spec=SystemSettings)
+    settings.promotion_threshold = 90
+
+    specialist = MagicMock(spec=User)
+    specialist.cm_id = cm_id
+    specialist.full_name = "Ivan Lysenko"
+
+    db = AsyncMock()
+    db.get.return_value = specialist
+    execute_results = [
+        _scalars_result([score]),                    # calculate_percentage
+        _scalar_one_or_none_result(settings),        # SystemSettings
+        _scalar_one_or_none_result(None),            # dedup check → no existing notification
+    ]
+    db.execute = AsyncMock(side_effect=lambda *a, **k: execute_results.pop(0))
+
+    added = []
+    db.add = MagicMock(side_effect=added.append)
+
+    result = await check_threshold(specialist_id, db)
+
+    assert result is True
+    assert len(added) == 1
+    notif = added[0]
+    assert notif.type == NotificationType.PROMOTION_SUGGESTION
+    assert notif.user_id == cm_id
+    assert str(specialist_id) in notif.content
+
+
+@pytest.mark.asyncio
+async def test_check_threshold_deduplicates_existing_notification():
+    specialist_id = uuid4()
+    cm_id = uuid4()
+
+    score = MagicMock(spec=SpecialistScore)
+    score.score = 95
+
+    settings = MagicMock(spec=SystemSettings)
+    settings.promotion_threshold = 90
+
+    specialist = MagicMock(spec=User)
+    specialist.cm_id = cm_id
+    specialist.full_name = "Ivan Lysenko"
+
+    existing_notif = MagicMock(spec=Notification)
+
+    db = AsyncMock()
+    db.get.return_value = specialist
+    execute_results = [
+        _scalars_result([score]),                          # calculate_percentage
+        _scalar_one_or_none_result(settings),              # SystemSettings
+        _scalar_one_or_none_result(existing_notif),        # dedup check → already notified
+    ]
+    db.execute = AsyncMock(side_effect=lambda *a, **k: execute_results.pop(0))
+
+    added = []
+    db.add = MagicMock(side_effect=added.append)
+
+    result = await check_threshold(specialist_id, db)
+
+    assert result is True
+    assert len(added) == 0
