@@ -17,6 +17,7 @@ import SessionPage from './pages/specialist/SessionPage'
 import SessionResultPage from './pages/specialist/SessionResultPage'
 import CMDashboardPage from './pages/cm/DashboardPage'
 import MatrixReviewPage from './pages/cm/MatrixReviewPage';
+import SpecialistDetailPage from './pages/cm/SpecialistDetailPage';
 
 const ROLE_HOMES: Record<string, string> = {
   specialist: '/specialist/dashboard',
@@ -80,6 +81,7 @@ export const router = createBrowserRouter([
     element: <CMLayout />,
     children: [
       { path: 'dashboard', element: <CMDashboardPage /> },
+      { path: 'specialist/:specialistId', element: <SpecialistDetailPage /> },
       { path: 'matrix/:specialistId/review', element: <MatrixReviewPage /> },
     ],
   },

@@ -121,7 +121,25 @@
     "dashboard": {
       "title": "CM Dashboard",
       "noSpecialists": "No specialists assigned yet",
-      "reviewMatrix": "Review Matrix"
+      "reviewMatrix": "Review Matrix",
+      "overallProgress": "{{percentage}}% overall",
+      "lastActive": "Last active {{date}}",
+      "neverAssessed": "Never assessed",
+      "inactiveWarning": "Inactive {{days}}d",
+      "viewDetails": "View details"
+    },
+    "specialistDetail": {
+      "back": "Back to team",
+      "overallProgress": "Overall Progress",
+      "categoryScores": "Category Scores",
+      "sessionHistory": "Session History",
+      "category": "Category",
+      "score": "Score",
+      "previousScore": "Prev. Score",
+      "lastAssessed": "Last Assessed",
+      "notAssessed": "Not assessed",
+      "date": "Date",
+      "noSessions": "No assessment sessions yet"
     },
     "matrixReview": {
       "title": "Matrix Review",

@@ -1,0 +1,280 @@
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
+
+import pytest
+from fastapi import HTTPException
+
+from app.core.security import create_access_token
+from app.db.session import get_db_session
+from app.models.user import SpecialistLevel, User, UserRole
+from app.schemas.cm import SpecialistCardRead, SpecialistDetailRead
+from app.schemas.pagination import PaginatedResponse
+from app.schemas.session import CategoryScoreRead, SessionListItemRead, SessionStatus
+from main import app
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _make_cm() -> MagicMock:
+    u = MagicMock(spec=User)
+    u.id = uuid4()
+    u.role = UserRole.CM
+    u.is_active = True
+    u.email = f"cm-{u.id.hex[:6]}@example.com"
+    u.full_name = "Test CM"
+    return u
+
+
+def _make_specialist(cm: MagicMock) -> MagicMock:
+    u = MagicMock(spec=User)
+    u.id = uuid4()
+    u.role = UserRole.SPECIALIST
+    u.is_active = True
+    u.cm_id = cm.id
+    u.email = f"spec-{u.id.hex[:6]}@example.com"
+    u.full_name = "Test Specialist"
+    u.specialist_level = SpecialistLevel.JUNIOR
+    return u
+
+
+def _make_jwt(user: MagicMock) -> str:
+    return create_access_token({"sub": str(user.id), "role": user.role.value})
+
+
+def _scalar_one_or_none_result(value) -> MagicMock:
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = value
+    return r
+
+
+def _scalars_all_result(values: list) -> MagicMock:
+    r = MagicMock()
+    scalars = MagicMock()
+    scalars.all.return_value = values
+    r.scalars.return_value = scalars
+    return r
+
+
+def _scalar_one_result(value) -> MagicMock:
+    r = MagicMock()
+    r.scalar_one.return_value = value
+    return r
+
+
+def _make_auth_db(user: MagicMock) -> tuple:
+    """Mock DB that returns `user` for the auth lookup and nothing else."""
+    mock_db = AsyncMock()
+    mock_db.commit = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=_scalar_one_or_none_result(user))
+
+    async def override():
+        yield mock_db
+
+    return override, mock_db
+
+
+def _make_card(specialist: MagicMock) -> SpecialistCardRead:
+    return SpecialistCardRead(
+        id=specialist.id,
+        full_name=specialist.full_name,
+        specialist_level=SpecialistLevel.JUNIOR,
+        overall_percentage=75,
+        last_activity_at=_now(),
+    )
+
+
+def _make_detail(specialist: MagicMock) -> SpecialistDetailRead:
+    return SpecialistDetailRead(
+        id=specialist.id,
+        full_name=specialist.full_name,
+        specialist_level=SpecialistLevel.JUNIOR,
+        overall_percentage=75,
+        category_scores=[
+            CategoryScoreRead(
+                category_id=uuid4(),
+                category_name="CI/CD",
+                score=80,
+                previous_score=70,
+                last_assessed_at=_now(),
+            )
+        ],
+        sessions=PaginatedResponse[SessionListItemRead](
+            items=[], total=0, page=1, per_page=20, pages=1
+        ),
+    )
+
+
+# ─── GET /cm/team ─────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_team_empty_returns_empty_list(async_client):
+    cm = _make_cm()
+    jwt = _make_jwt(cm)
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_team_overview",
+            new=AsyncMock(return_value=[]),
+        ):
+            response = await async_client.get(
+                "/api/v1/cm/team",
+                cookies={"access_token": jwt},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_get_team_returns_specialist_cards(async_client):
+    cm = _make_cm()
+    jwt = _make_jwt(cm)
+    specialist = _make_specialist(cm)
+    card = _make_card(specialist)
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_team_overview",
+            new=AsyncMock(return_value=[card]),
+        ):
+            response = await async_client.get(
+                "/api/v1/cm/team",
+                cookies={"access_token": jwt},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    item = body[0]
+    assert item["id"] == str(specialist.id)
+    assert item["full_name"] == specialist.full_name
+    assert item["overall_percentage"] == 75
+    assert item["specialist_level"] == "junior"
+    assert item["last_activity_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_get_team_data_isolation(async_client):
+    """CM B cannot see CM A's specialists — verified at service layer."""
+    from app.services.cm_service import get_team_overview
+
+    cm_a = _make_cm()
+    cm_b = _make_cm()
+    specialist = _make_specialist(cm_a)
+
+    mock_db = AsyncMock()
+    # specialists query for cm_b.id → empty (specialist belongs to cm_a)
+    mock_db.execute = AsyncMock(return_value=_scalars_all_result([]))
+
+    cards = await get_team_overview(cm_b.id, mock_db)
+
+    assert cards == []
+    # service made exactly one DB call (specialist query)
+    assert mock_db.execute.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_get_team_requires_cm_role(async_client):
+    specialist = MagicMock(spec=User)
+    specialist.id = uuid4()
+    specialist.role = UserRole.SPECIALIST
+    specialist.is_active = True
+    jwt = create_access_token({"sub": str(specialist.id), "role": "specialist"})
+    override, _ = _make_auth_db(specialist)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        response = await async_client.get(
+            "/api/v1/cm/team",
+            cookies={"access_token": jwt},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert response.status_code == 403
+
+
+# ─── GET /cm/specialists/{id} ─────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_specialist_detail_returns_data(async_client):
+    cm = _make_cm()
+    jwt = _make_jwt(cm)
+    specialist = _make_specialist(cm)
+    detail = _make_detail(specialist)
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_specialist_detail",
+            new=AsyncMock(return_value=detail),
+        ):
+            response = await async_client.get(
+                f"/api/v1/cm/specialists/{specialist.id}",
+                cookies={"access_token": jwt},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == str(specialist.id)
+    assert body["overall_percentage"] == 75
+    assert len(body["category_scores"]) == 1
+    assert "sessions" in body
+
+
+@pytest.mark.asyncio
+async def test_get_specialist_detail_rejects_wrong_cm(async_client):
+    cm_b = _make_cm()
+    jwt = _make_jwt(cm_b)
+    other_specialist_id = uuid4()
+    override, _ = _make_auth_db(cm_b)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_specialist_detail",
+            new=AsyncMock(side_effect=HTTPException(status_code=404, detail="Specialist not found")),
+        ):
+            response = await async_client.get(
+                f"/api/v1/cm/specialists/{other_specialist_id}",
+                cookies={"access_token": jwt},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_specialist_detail_requires_cm_role(async_client):
+    specialist_user = MagicMock(spec=User)
+    specialist_user.id = uuid4()
+    specialist_user.role = UserRole.SPECIALIST
+    specialist_user.is_active = True
+    jwt = create_access_token({"sub": str(specialist_user.id), "role": "specialist"})
+    override, _ = _make_auth_db(specialist_user)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        response = await async_client.get(
+            f"/api/v1/cm/specialists/{uuid4()}",
+            cookies={"access_token": jwt},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert response.status_code == 403

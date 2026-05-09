@@ -1,3 +1,5 @@
+import type { PaginatedResponse } from './api'
+
 export type UserRole = 'admin' | 'specialist' | 'cm' | 'hr'
 
 export type SpecialistLevel = 'junior' | 'middle' | 'senior'
@@ -119,4 +121,21 @@ export interface SessionListItem {
   createdAt: string
   updatedAt: string
   dispute: SessionDispute | null
+}
+
+export interface SpecialistCard {
+  id: string
+  fullName: string
+  specialistLevel: SpecialistLevel | null
+  overallPercentage: number
+  lastActivityAt: string | null
+}
+
+export interface SpecialistDetail {
+  id: string
+  fullName: string
+  specialistLevel: SpecialistLevel | null
+  overallPercentage: number
+  categoryScores: CategoryScore[]
+  sessions: PaginatedResponse<SessionListItem>
 }

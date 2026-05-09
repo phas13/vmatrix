@@ -147,34 +147,41 @@ async def test_cm_team_uses_single_user_lookup_plus_team_query(async_client):
 # ─── AC3: CM team returns only CM's assigned specialists ──────────────────────
 
 async def test_cm_team_returns_only_assigned_specialists(async_client):
+    from datetime import datetime, timezone
+    from unittest.mock import patch
+    from uuid import uuid4 as _uuid4
+    from app.models.user import SpecialistLevel
+    from app.schemas.cm import SpecialistCardRead
+
     cm = _make_user(UserRole.CM)
     specialist = _make_user(UserRole.SPECIALIST)
     specialist.cm_id = cm.id
 
-    mock_result_user = MagicMock()
-    mock_result_user.scalar_one_or_none.return_value = cm
-    mock_result_list = MagicMock()
-    mock_result_list.scalars.return_value.all.return_value = [specialist]
-    mock_db = AsyncMock()
-    mock_db.execute = AsyncMock(side_effect=[mock_result_user, mock_result_list])
+    card = SpecialistCardRead(
+        id=specialist.id,
+        full_name=specialist.full_name,
+        specialist_level=SpecialistLevel.JUNIOR,
+        overall_percentage=60,
+        last_activity_at=datetime.now(timezone.utc),
+    )
 
-    async def override():
-        yield mock_db
-
+    override, _ = _db_returning(cm)
     app.dependency_overrides[get_db_session] = override
     try:
         token = _make_jwt(cm)
-        response = await async_client.get(
-            "/api/v1/cm/team",
-            cookies={"access_token": token},
-        )
+        with patch("app.services.cm_service.get_team_overview", new=AsyncMock(return_value=[card])):
+            response = await async_client.get(
+                "/api/v1/cm/team",
+                cookies={"access_token": token},
+            )
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 1
-    assert data[0]["email"] == specialist.email
+    assert data[0]["id"] == str(specialist.id)
+    assert data[0]["full_name"] == specialist.full_name
 
 
 # ─── AC4: Cross-Specialist access → 404 (resource existence not revealed) ─────

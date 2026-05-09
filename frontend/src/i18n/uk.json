@@ -123,7 +123,25 @@
     "dashboard": {
       "title": "Дашборд КМ",
       "noSpecialists": "Спеціалісти ще не призначені",
-      "reviewMatrix": "Переглянути матрицю"
+      "reviewMatrix": "Переглянути матрицю",
+      "overallProgress": "{{percentage}}% загалом",
+      "lastActive": "Остання активність {{date}}",
+      "neverAssessed": "Ще не оцінювався",
+      "inactiveWarning": "Неактивний {{days}} дн.",
+      "viewDetails": "Деталі"
+    },
+    "specialistDetail": {
+      "back": "Назад до команди",
+      "overallProgress": "Загальний прогрес",
+      "categoryScores": "Оцінки по категоріях",
+      "sessionHistory": "Історія оцінювань",
+      "category": "Категорія",
+      "score": "Оцінка",
+      "previousScore": "Попередня оцінка",
+      "lastAssessed": "Остання оцінка",
+      "notAssessed": "Ще не оцінювалась",
+      "date": "Дата",
+      "noSessions": "Сесій оцінювання ще немає"
     },
     "matrixReview": {
       "title": "Перегляд матриці",
