@@ -646,6 +646,41 @@ async def get_session(
     return session
 
 
+# ─── get_session_for_review ────────────────────────────────────────────────────
+
+async def get_session_for_review(session_id: UUID, db: AsyncSession) -> AssessmentSession:
+    """Load, decrypt and return a session for CM dispute review. No ownership check — caller's responsibility."""
+    result = await db.execute(
+        select(AssessmentSession)
+        .where(AssessmentSession.id == session_id)
+        .options(
+            selectinload(AssessmentSession.questions),
+            selectinload(AssessmentSession.responses),
+            selectinload(AssessmentSession.dispute),
+        )
+    )
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise _session_not_found(f"/cm/disputes/{session_id}")
+
+    cat_result = await db.execute(
+        select(CompetencyCategory.name).where(CompetencyCategory.id == session.category_id)
+    )
+    session.category_name = cat_result.scalar()
+
+    db.expunge(session)
+    for resp in session.responses:
+        db.expunge(resp)
+
+    for resp in session.responses:
+        if resp.response_text:
+            resp.response_text = decrypt_field(resp.response_text)
+        if resp.ai_rationale:
+            resp.ai_rationale = decrypt_field(resp.ai_rationale)
+
+    return session
+
+
 # ─── submit_answer ─────────────────────────────────────────────────────────────
 
 async def submit_answer(

@@ -160,6 +160,22 @@
       "approveError": "Failed to approve matrix. Please try again.",
       "alreadyApproved": "This matrix has already been approved.",
       "discardChanges": "Discard changes"
+    },
+    "dispute": {
+      "loadError": "Failed to load dispute — please retry",
+      "specialistExplanation": "Specialist's Explanation",
+      "aiScore": "AI Score",
+      "uphold": "Uphold",
+      "override": "Override",
+      "confirmUphold": "Confirm Uphold",
+      "confirmOverride": "Confirm Override",
+      "overrideScore": "Corrected Score (0–100)",
+      "overrideNote": "Override Rationale (required)",
+      "resolvedUphold": "Decision: Upheld",
+      "resolvedOverride": "Decision: Overridden",
+      "questionLabel": "Q{{num}}",
+      "aiRationaleLabel": "AI Rationale",
+      "responseLabel": "Specialist Response"
     }
   },
   "session": {

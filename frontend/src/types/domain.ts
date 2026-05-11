@@ -158,3 +158,44 @@ export interface PendingActionsData {
   updateProposals: PendingAction[]
   total: number
 }
+
+export type DisputeDecision = 'upheld' | 'overridden'
+
+export interface DisputeTranscriptItem {
+  questionId: string
+  questionText: string
+  questionType: 'theoretical' | 'practical'
+  order: number
+  responseText: string | null
+  aiRationale: string | null
+}
+
+export interface DisputeDetailData {
+  id: string
+  sessionId: string
+  specialistId: string
+  specialistName: string
+  categoryId: string
+  categoryName: string | null
+  status: 'open' | 'resolved'
+  specialistExplanation: string
+  submittedAt: string
+  cmDecision: string | null
+  aiScore: number | null
+  transcript: DisputeTranscriptItem[]
+}
+
+export interface ResolveDisputeRequest {
+  decision: DisputeDecision
+  cmNote?: string
+  overrideScore?: number
+}
+
+export interface ResolveDisputeResponse {
+  id: string
+  status: string
+  cmDecision: string
+  cmNote: string | null
+  resolvedAt: string
+  updatedScore: number | null
+}

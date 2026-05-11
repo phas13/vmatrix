@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.core.security import create_access_token
 from app.db.session import get_db_session
 from app.models.user import SpecialistLevel, User, UserRole
-from app.schemas.cm import PendingActionsResponse, PendingActionRead, PendingActionType, SpecialistCardRead, SpecialistDetailRead
+from app.schemas.cm import DisputeDecision, DisputeDetailRead, DisputeResolveResponse, PendingActionsResponse, PendingActionRead, PendingActionType, QuestionResponseItem, SpecialistCardRead, SpecialistDetailRead
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.session import CategoryScoreRead, SessionListItemRead, SessionStatus
 from main import app
@@ -551,6 +551,249 @@ async def test_get_pending_requires_cm_role(async_client):
     try:
         resp = await async_client.get(
             "/api/v1/cm/pending",
+            cookies={"access_token": _make_jwt(specialist)},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 403
+
+
+# ─── GET /cm/disputes/{id} and POST /cm/disputes/{id}/actions/resolve ─────────
+
+def _make_dispute_detail(specialist: MagicMock) -> DisputeDetailRead:
+    return DisputeDetailRead(
+        id=uuid4(),
+        session_id=uuid4(),
+        specialist_id=specialist.id,
+        specialist_name=specialist.full_name,
+        category_id=uuid4(),
+        category_name="Cloud Infrastructure",
+        status="open",
+        specialist_explanation="I disagree with the AI rationale for Q1",
+        submitted_at=_now(),
+        cm_decision=None,
+        ai_score=60,
+        transcript=[
+            QuestionResponseItem(
+                question_id=uuid4(),
+                question_text="What is CI/CD?",
+                question_type="theoretical",
+                order=1,
+                response_text="Continuous integration and delivery pipeline",
+                ai_rationale="Correct but lacks depth",
+            ),
+            QuestionResponseItem(
+                question_id=uuid4(),
+                question_text="Describe a deployment strategy",
+                question_type="practical",
+                order=2,
+                response_text="Blue-green deployment",
+                ai_rationale="Good answer",
+            ),
+        ],
+    )
+
+
+def _make_resolve_response(decision: DisputeDecision) -> DisputeResolveResponse:
+    return DisputeResolveResponse(
+        id=uuid4(),
+        status="resolved",
+        cm_decision=decision.value,
+        cm_note="Override rationale" if decision == DisputeDecision.OVERRIDDEN else None,
+        resolved_at=_now(),
+        updated_score=75 if decision == DisputeDecision.OVERRIDDEN else None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_dispute_detail_returns_full_transcript(async_client):
+    cm = _make_cm()
+    specialist = _make_specialist(cm)
+    detail = _make_dispute_detail(specialist)
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_dispute_detail",
+            new=AsyncMock(return_value=detail),
+        ):
+            resp = await async_client.get(
+                f"/api/v1/cm/disputes/{detail.id}",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["specialist_name"] == specialist.full_name
+    assert body["status"] == "open"
+    assert len(body["transcript"]) == 2
+    assert body["transcript"][0]["order"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_dispute_detail_requires_cm_role(async_client):
+    cm = _make_cm()
+    specialist = _make_specialist(cm)
+    override, _ = _make_auth_db(specialist)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        resp = await async_client.get(
+            f"/api/v1/cm/disputes/{uuid4()}",
+            cookies={"access_token": _make_jwt(specialist)},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_get_dispute_detail_not_found(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_dispute_detail",
+            new=AsyncMock(side_effect=HTTPException(status_code=404, detail="Dispute not found")),
+        ):
+            resp = await async_client.get(
+                f"/api/v1/cm/disputes/{uuid4()}",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_resolve_dispute_upheld(async_client):
+    cm = _make_cm()
+    resolve_resp = _make_resolve_response(DisputeDecision.UPHELD)
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.resolve_dispute",
+            new=AsyncMock(return_value=resolve_resp),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/disputes/{uuid4()}/actions/resolve",
+                json={"decision": "upheld"},
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "resolved"
+    assert body["cm_decision"] == "upheld"
+
+
+@pytest.mark.asyncio
+async def test_resolve_dispute_overridden(async_client):
+    cm = _make_cm()
+    resolve_resp = _make_resolve_response(DisputeDecision.OVERRIDDEN)
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.resolve_dispute",
+            new=AsyncMock(return_value=resolve_resp),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/disputes/{uuid4()}/actions/resolve",
+                json={"decision": "overridden", "cm_note": "Score was unfair", "override_score": 75},
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["cm_decision"] == "overridden"
+    assert body["updated_score"] == 75
+
+
+@pytest.mark.asyncio
+async def test_resolve_dispute_overridden_missing_note(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        resp = await async_client.post(
+            f"/api/v1/cm/disputes/{uuid4()}/actions/resolve",
+            json={"decision": "overridden", "override_score": 75},
+            cookies={"access_token": _make_jwt(cm)},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_resolve_dispute_overridden_missing_score(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        resp = await async_client.post(
+            f"/api/v1/cm/disputes/{uuid4()}/actions/resolve",
+            json={"decision": "overridden", "cm_note": "Score was unfair"},
+            cookies={"access_token": _make_jwt(cm)},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_resolve_dispute_already_resolved(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.resolve_dispute",
+            new=AsyncMock(side_effect=HTTPException(status_code=409, detail="Dispute has already been resolved")),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/disputes/{uuid4()}/actions/resolve",
+                json={"decision": "upheld"},
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_resolve_dispute_requires_cm_role(async_client):
+    cm = _make_cm()
+    specialist = _make_specialist(cm)
+    override, _ = _make_auth_db(specialist)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        resp = await async_client.post(
+            f"/api/v1/cm/disputes/{uuid4()}/actions/resolve",
+            json={"decision": "upheld"},
             cookies={"access_token": _make_jwt(specialist)},
         )
     finally:

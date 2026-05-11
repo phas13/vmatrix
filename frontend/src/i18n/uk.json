@@ -162,6 +162,22 @@
       "approveError": "Не вдалося затвердити матрицю. Спробуйте ще раз.",
       "alreadyApproved": "Ця матриця вже затверджена.",
       "discardChanges": "Скасувати зміни"
+    },
+    "dispute": {
+      "loadError": "Не вдалося завантажити суперечку — повторіть спробу",
+      "specialistExplanation": "Пояснення фахівця",
+      "aiScore": "Оцінка AI",
+      "uphold": "Підтвердити",
+      "override": "Скасувати",
+      "confirmUphold": "Підтвердити рішення",
+      "confirmOverride": "Підтвердити скасування",
+      "overrideScore": "Виправлена оцінка (0–100)",
+      "overrideNote": "Обґрунтування скасування (обов'язково)",
+      "resolvedUphold": "Рішення: підтверджено",
+      "resolvedOverride": "Рішення: скасовано",
+      "questionLabel": "П{{num}}",
+      "aiRationaleLabel": "Обґрунтування AI",
+      "responseLabel": "Відповідь фахівця"
     }
   },
   "session": {
