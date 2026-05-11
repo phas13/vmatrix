@@ -21,6 +21,7 @@
     "previous": "Попередня",
     "next": "Наступна",
     "genericError": "Щось пішло не так. Спробуйте ще раз.",
+    "retry": "Повторити",
     "cancel": "Скасувати",
     "close": "Закрити",
     "loading": "Завантаження..."
@@ -135,6 +136,7 @@
     "pending": {
       "allCaughtUp": "Усе опрацьовано — немає незавершених дій",
       "review": "Переглянути",
+      "loadError": "Не вдалося завантажити дії — повторіть спробу",
       "groupLabel": {
         "dispute": "Суперечки",
         "promotion": "Підвищення",
@@ -165,16 +167,21 @@
     },
     "dispute": {
       "loadError": "Не вдалося завантажити суперечку — повторіть спробу",
+      "resolveError": "Не вдалося зберегти рішення — спробуйте ще раз",
+      "alreadyResolved": "Цю суперечку вже вирішено",
+      "scoreInvalid": "Оцінка має бути цілим числом",
+      "scoreOutOfRange": "Оцінка має бути від 0 до 100",
+      "resolveSuccess": "Рішення збережено — перехід…",
       "specialistExplanation": "Пояснення фахівця",
       "aiScore": "Оцінка AI",
       "uphold": "Підтвердити",
-      "override": "Скасувати",
+      "override": "Замінити рішення",
       "confirmUphold": "Підтвердити рішення",
-      "confirmOverride": "Підтвердити скасування",
+      "confirmOverride": "Підтвердити заміну",
       "overrideScore": "Виправлена оцінка (0–100)",
-      "overrideNote": "Обґрунтування скасування (обов'язково)",
+      "overrideNote": "Обґрунтування заміни (обов'язково)",
       "resolvedUphold": "Рішення: підтверджено",
-      "resolvedOverride": "Рішення: скасовано",
+      "resolvedOverride": "Рішення: замінено",
       "questionLabel": "П{{num}}",
       "aiRationaleLabel": "Обґрунтування AI",
       "responseLabel": "Відповідь фахівця"

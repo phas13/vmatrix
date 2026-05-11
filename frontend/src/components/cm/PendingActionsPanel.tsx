@@ -26,7 +26,7 @@ interface GroupProps {
 }
 
 function ActionGroup({ type, items, label }: GroupProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const paletteKey = TYPE_PALETTE_KEY[type] || 'action.disabled'
 
   return (
@@ -42,14 +42,10 @@ function ActionGroup({ type, items, label }: GroupProps) {
       </Typography>
       {items.map((item) => (
         <Box
-          key={item.id}
+          key={`${item.type}-${item.id}`}
           sx={{
-            borderLeft: (theme) => {
-              const [group, shade] = paletteKey.split('.')
-              const palette = theme.palette as any
-              const color = shade ? palette[group]?.[shade] : palette[group]
-              return `4px solid ${color || theme.palette.action.disabled}`
-            },
+            borderLeft: '4px solid',
+            borderColor: paletteKey,
             pl: 2,
             mb: 1,
             py: 1,
@@ -58,7 +54,7 @@ function ActionGroup({ type, items, label }: GroupProps) {
           <Typography variant="body2" fontWeight={500}>{item.specialistName}</Typography>
           <Typography variant="body2" color="text.secondary">{item.description}</Typography>
           <Typography variant="caption" color="text.secondary">
-            {new Date(item.date).toLocaleDateString()}
+            {new Date(item.date).toLocaleDateString(i18n.language)}
           </Typography>
           <Box sx={{ mt: 0.5 }}>
             <Button
@@ -89,7 +85,14 @@ export default function PendingActionsPanel({ data, isLoading }: Props) {
     )
   }
 
-  if (!data || data.total === 0) {
+  const itemCount = data
+    ? data.disputes.length
+      + data.promotions.length
+      + data.matrixApprovals.length
+      + data.updateProposals.length
+    : 0
+
+  if (!data || itemCount === 0) {
     return (
       <Typography color="text.secondary">
         {t('cm.pending.allCaughtUp')}

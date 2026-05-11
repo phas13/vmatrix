@@ -10,13 +10,24 @@ interface SplitPanelReviewProps {
 function SplitPanelReview({ leftContent, rightContent, isLoading }: SplitPanelReviewProps) {
   const theme = useTheme()
   const rightPanelRef = useRef<HTMLDivElement>(null)
+  const focusedRef = useRef(false)
 
   useEffect(() => {
-    if (!isLoading && rightPanelRef.current) {
-      const firstFocusable = rightPanelRef.current.querySelector<HTMLElement>(
+    if (isLoading || focusedRef.current || !rightPanelRef.current) return
+
+    const focusables = Array.from(
+      rightPanelRef.current.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      )
-      firstFocusable?.focus()
+      ),
+    ).filter(
+      (el) =>
+        !el.hasAttribute('disabled')
+        && el.getAttribute('aria-hidden') !== 'true',
+    )
+
+    if (focusables.length > 0) {
+      focusables[0].focus()
+      focusedRef.current = true
     }
   }, [isLoading])
 

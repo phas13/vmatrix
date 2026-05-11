@@ -21,6 +21,7 @@
     "previous": "Previous",
     "next": "Next",
     "genericError": "Something went wrong. Please try again.",
+    "retry": "Retry",
     "cancel": "Cancel",
     "close": "Close",
     "loading": "Loading..."
@@ -133,6 +134,7 @@
     "pending": {
       "allCaughtUp": "All caught up — no actions pending",
       "review": "Review",
+      "loadError": "Failed to load pending actions — please retry",
       "groupLabel": {
         "dispute": "Disputes",
         "promotion": "Promotions",
@@ -163,6 +165,11 @@
     },
     "dispute": {
       "loadError": "Failed to load dispute — please retry",
+      "resolveError": "Failed to resolve dispute — please try again",
+      "alreadyResolved": "This dispute has already been resolved",
+      "scoreInvalid": "Score must be an integer",
+      "scoreOutOfRange": "Score must be between 0 and 100",
+      "resolveSuccess": "Decision recorded — navigating…",
       "specialistExplanation": "Specialist's Explanation",
       "aiScore": "AI Score",
       "uphold": "Uphold",

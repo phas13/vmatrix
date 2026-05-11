@@ -1,5 +1,5 @@
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
-import { Box, Button, Chip, Link, Skeleton, Typography, useTheme } from '@mui/material'
+import { Alert, Box, Button, Chip, Link, Skeleton, Typography, useTheme } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
@@ -27,9 +27,14 @@ export default function CMDashboardPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const theme = useTheme()
-  const cmId = user?.id ?? ''
+  const cmId = user?.id
 
-  const { data: pendingData, isLoading: pendingLoading } = useQuery({
+  const {
+    data: pendingData,
+    isLoading: pendingLoading,
+    isError: pendingError,
+    refetch: refetchPending,
+  } = useQuery({
     queryKey: ['cm', 'pending', cmId],
     queryFn: getCmPending,
     enabled: !!cmId,
@@ -54,7 +59,20 @@ export default function CMDashboardPage() {
           <Chip label={pendingData!.total} color="error" size="small" />
         )}
       </Typography>
-      <PendingActionsPanel data={pendingData} isLoading={pendingLoading} />
+      {pendingError ? (
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => refetchPending()}>
+              {t('common.retry')}
+            </Button>
+          }
+        >
+          {t('cm.pending.loadError')}
+        </Alert>
+      ) : (
+        <PendingActionsPanel data={pendingData} isLoading={pendingLoading} />
+      )}
 
       {/* Team Overview Section */}
       <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>{t('cm.dashboard.teamOverview')}</Typography>

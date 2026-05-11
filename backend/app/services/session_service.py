@@ -3,9 +3,11 @@ import logging
 import math
 import time
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
 
+from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -648,8 +650,39 @@ async def get_session(
 
 # ─── get_session_for_review ────────────────────────────────────────────────────
 
-async def get_session_for_review(session_id: UUID, db: AsyncSession) -> AssessmentSession:
-    """Load, decrypt and return a session for CM dispute review. No ownership check — caller's responsibility."""
+DECRYPT_FAILED_PLACEHOLDER = "[unable to decrypt]"
+
+
+@dataclass
+class SessionForReview:
+    """Decrypted session view for CM dispute review.
+
+    Returned as a dataclass (not the ORM session) so callers don't depend on
+    SQLAlchemy detach semantics or risk mutating a tracked instance.
+    """
+    category_name: str | None
+    questions: list[AssessmentQuestion]
+    responses: list[AssessmentResponse]
+
+
+def _safe_decrypt(value: str | None) -> str | None:
+    if not value:
+        return value
+    try:
+        return decrypt_field(value)
+    except HTTPException:
+        # A single corrupt ciphertext substitutes a placeholder so one bad
+        # response doesn't abort the entire dispute review.
+        return DECRYPT_FAILED_PLACEHOLDER
+
+
+async def get_session_for_review(session_id: UUID, db: AsyncSession) -> SessionForReview:
+    """Load and decrypt a session for CM dispute review.
+
+    No ownership check — caller's responsibility. Returns a dataclass so callers
+    don't have to reason about SQLAlchemy detach semantics on the session
+    instance. Per-field decryption errors are tolerated (placeholder substituted).
+    """
     result = await db.execute(
         select(AssessmentSession)
         .where(AssessmentSession.id == session_id)
@@ -666,19 +699,22 @@ async def get_session_for_review(session_id: UUID, db: AsyncSession) -> Assessme
     cat_result = await db.execute(
         select(CompetencyCategory.name).where(CompetencyCategory.id == session.category_id)
     )
-    session.category_name = cat_result.scalar()
+    category_name = cat_result.scalar()
 
+    # Detach so per-field plaintext writes can never flush back to the DB.
     db.expunge(session)
     for resp in session.responses:
         db.expunge(resp)
 
     for resp in session.responses:
-        if resp.response_text:
-            resp.response_text = decrypt_field(resp.response_text)
-        if resp.ai_rationale:
-            resp.ai_rationale = decrypt_field(resp.ai_rationale)
+        resp.response_text = _safe_decrypt(resp.response_text)
+        resp.ai_rationale = _safe_decrypt(resp.ai_rationale)
 
-    return session
+    return SessionForReview(
+        category_name=category_name,
+        questions=list(session.questions),
+        responses=list(session.responses),
+    )
 
 
 # ─── submit_answer ─────────────────────────────────────────────────────────────

@@ -4,8 +4,8 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.matrix import CompetencyCategory, CompetencyMatrix, MatrixStatus
 from app.models.notification import Notification, NotificationType
@@ -171,7 +171,7 @@ async def get_pending_actions(cm_id: UUID, db: AsyncSession) -> PendingActionsRe
             continue
         promotions.append(
             PendingActionRead(
-                id=specialist_id,
+                id=notification.id,
                 type=PendingActionType.PROMOTION,
                 specialist_id=specialist_id,
                 specialist_name=spec_name_map.get(specialist_id, "Unknown specialist"),
@@ -192,18 +192,21 @@ async def get_pending_actions(cm_id: UUID, db: AsyncSession) -> PendingActionsRe
     )
 
 
+_DISPUTE_NOT_FOUND = "Dispute not found"
+
+
 async def get_dispute_detail(cm_id: UUID, dispute_id: UUID, db: AsyncSession) -> DisputeDetailRead:
     dispute = await db.get(SessionDispute, dispute_id)
     if dispute is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dispute not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_DISPUTE_NOT_FOUND)
 
     session = await db.get(AssessmentSession, dispute.session_id)
     if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_DISPUTE_NOT_FOUND)
 
     specialist = await db.get(User, session.specialist_id)
     if specialist is None or specialist.cm_id != cm_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dispute not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_DISPUTE_NOT_FOUND)
 
     full_session = await session_service.get_session_for_review(dispute.session_id, db)
 
@@ -244,20 +247,28 @@ async def resolve_dispute(
     body: DisputeResolveRequest,
     db: AsyncSession,
 ) -> DisputeResolveResponse:
-    result = await db.execute(
+    dispute_result = await db.execute(
         select(SessionDispute)
         .where(SessionDispute.id == dispute_id)
-        .options(selectinload(SessionDispute.session))
         .with_for_update()
     )
-    dispute = result.scalar_one_or_none()
+    dispute = dispute_result.scalar_one_or_none()
     if dispute is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dispute not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_DISPUTE_NOT_FOUND)
 
-    session = dispute.session
+    # Lock the session row separately so `session.final_score` mutation is race-safe.
+    session_result = await db.execute(
+        select(AssessmentSession)
+        .where(AssessmentSession.id == dispute.session_id)
+        .with_for_update()
+    )
+    session = session_result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_DISPUTE_NOT_FOUND)
+
     specialist = await db.get(User, session.specialist_id)
     if specialist is None or specialist.cm_id != cm_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dispute not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=_DISPUTE_NOT_FOUND)
 
     if dispute.status != DisputeStatus.OPEN:
         raise HTTPException(
@@ -278,25 +289,28 @@ async def resolve_dispute(
     dispute.cm_id = cm_id
 
     if body.decision == DisputeDecision.OVERRIDDEN:
+        # CM override always wins, regardless of whether a newer assessment
+        # session has produced a different score for this (specialist, category).
+        # Product decision: dispute-resolution is authoritative.
         session.final_score = body.override_score
 
-        existing_result = await db.execute(
-            select(SpecialistScore).where(
-                SpecialistScore.specialist_id == session.specialist_id,
-                SpecialistScore.category_id == session.category_id,
-            )
-        )
-        existing_score = existing_result.scalar_one_or_none()
-        if existing_score:
-            existing_score.score = body.override_score
-            existing_score.last_assessed_at = now
-        else:
-            db.add(SpecialistScore(
+        # Idempotent upsert via PostgreSQL ON CONFLICT against
+        # `uq_specialist_scores_spec_cat` — eliminates the SELECT-then-INSERT
+        # race between concurrent dispute resolutions for the same pair.
+        upsert_stmt = (
+            pg_insert(SpecialistScore)
+            .values(
                 specialist_id=session.specialist_id,
                 category_id=session.category_id,
                 score=body.override_score,
                 last_assessed_at=now,
-            ))
+            )
+            .on_conflict_do_update(
+                index_elements=["specialist_id", "category_id"],
+                set_={"score": body.override_score, "last_assessed_at": now},
+            )
+        )
+        await db.execute(upsert_stmt)
 
     cat_result = await db.execute(
         select(CompetencyCategory.name).where(CompetencyCategory.id == session.category_id)
