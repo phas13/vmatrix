@@ -27,7 +27,7 @@ interface GroupProps {
 
 function ActionGroup({ type, items, label }: GroupProps) {
   const { t } = useTranslation()
-  const paletteKey = TYPE_PALETTE_KEY[type]
+  const paletteKey = TYPE_PALETTE_KEY[type] || 'action.disabled'
 
   return (
     <Box sx={{ mb: 2 }}>
@@ -46,8 +46,9 @@ function ActionGroup({ type, items, label }: GroupProps) {
           sx={{
             borderLeft: (theme) => {
               const [group, shade] = paletteKey.split('.')
-              const palette = theme.palette as unknown as Record<string, Record<string, string>>
-              return `4px solid ${palette[group][shade]}`
+              const palette = theme.palette as any
+              const color = shade ? palette[group]?.[shade] : palette[group]
+              return `4px solid ${color || theme.palette.action.disabled}`
             },
             pl: 2,
             mb: 1,

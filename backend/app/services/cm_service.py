@@ -158,7 +158,10 @@ async def get_pending_actions(cm_id: UUID, db: AsyncSession) -> PendingActionsRe
         match = _uuid_pattern.search(notification.content)
         if not match:
             continue
-        specialist_id = UUID(match.group(1))
+        try:
+            specialist_id = UUID(match.group(1))
+        except ValueError:
+            continue
         promotions.append(
             PendingActionRead(
                 id=specialist_id,
