@@ -1,12 +1,21 @@
+import re
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.session import SpecialistScore
+from app.models.matrix import CompetencyMatrix, MatrixStatus
+from app.models.notification import Notification, NotificationType
+from app.models.session import AssessmentSession, DisputeStatus, SessionDispute, SpecialistScore
 from app.models.user import User, UserRole
-from app.schemas.cm import SpecialistCardRead, SpecialistDetailRead
+from app.schemas.cm import (
+    PendingActionRead,
+    PendingActionType,
+    PendingActionsResponse,
+    SpecialistCardRead,
+    SpecialistDetailRead,
+)
 from app.services import level_service, session_service
 
 
@@ -79,4 +88,95 @@ async def get_specialist_detail(
         overall_percentage=dashboard.overall_percentage,
         category_scores=dashboard.category_scores,
         sessions=sessions,
+    )
+
+
+async def get_pending_actions(cm_id: UUID, db: AsyncSession) -> PendingActionsResponse:
+    specialists_result = await db.execute(
+        select(User).where(
+            User.cm_id == cm_id,
+            User.role == UserRole.SPECIALIST,
+            User.is_active.is_(True),
+        )
+    )
+    specialists = specialists_result.scalars().all()
+    spec_ids = [s.id for s in specialists]
+    spec_name_map: dict[UUID, str] = {s.id: s.full_name for s in specialists}
+
+    disputes: list[PendingActionRead] = []
+    matrix_approvals: list[PendingActionRead] = []
+
+    if spec_ids:
+        disputes_result = await db.execute(
+            select(SessionDispute, AssessmentSession.specialist_id)
+            .join(AssessmentSession, SessionDispute.session_id == AssessmentSession.id)
+            .where(
+                AssessmentSession.specialist_id.in_(spec_ids),
+                SessionDispute.status == DisputeStatus.OPEN,
+            )
+        )
+        for dispute, specialist_id in disputes_result.all():
+            disputes.append(
+                PendingActionRead(
+                    id=dispute.id,
+                    type=PendingActionType.DISPUTE,
+                    specialist_id=specialist_id,
+                    specialist_name=spec_name_map.get(specialist_id, "Unknown"),
+                    description="Assessment dispute pending review",
+                    date=dispute.submitted_at,
+                )
+            )
+
+        matrices_result = await db.execute(
+            select(CompetencyMatrix).where(
+                CompetencyMatrix.specialist_id.in_(spec_ids),
+                CompetencyMatrix.status == MatrixStatus.PENDING_APPROVAL,
+            )
+        )
+        for matrix in matrices_result.scalars().all():
+            matrix_approvals.append(
+                PendingActionRead(
+                    id=matrix.id,
+                    type=PendingActionType.MATRIX_APPROVAL,
+                    specialist_id=matrix.specialist_id,
+                    specialist_name=spec_name_map.get(matrix.specialist_id, "Unknown"),
+                    description="Competency matrix awaiting approval",
+                    date=matrix.updated_at,
+                )
+            )
+
+    promos_result = await db.execute(
+        select(Notification).where(
+            Notification.user_id == cm_id,
+            Notification.type == NotificationType.PROMOTION_SUGGESTION,
+            Notification.is_read.is_(False),
+        )
+    )
+    promotions: list[PendingActionRead] = []
+    _uuid_pattern = re.compile(r'\[([a-f0-9-]{36})\]')
+    for notification in promos_result.scalars().all():
+        match = _uuid_pattern.search(notification.content)
+        if not match:
+            continue
+        specialist_id = UUID(match.group(1))
+        promotions.append(
+            PendingActionRead(
+                id=specialist_id,
+                type=PendingActionType.PROMOTION,
+                specialist_id=specialist_id,
+                specialist_name=spec_name_map.get(specialist_id, "Unknown specialist"),
+                description="Promotion threshold reached — review required",
+                date=notification.created_at,
+            )
+        )
+
+    update_proposals: list[PendingActionRead] = []
+
+    total = len(disputes) + len(promotions) + len(matrix_approvals) + len(update_proposals)
+    return PendingActionsResponse(
+        disputes=disputes,
+        promotions=promotions,
+        matrix_approvals=matrix_approvals,
+        update_proposals=update_proposals,
+        total=total,
     )

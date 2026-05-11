@@ -1,3 +1,4 @@
+import React from 'react';
 import { createBrowserRouter, redirect, Outlet } from 'react-router-dom';
 import { getMe } from './api/auth';
 import PublicLayout from './layouts/PublicLayout';
@@ -18,6 +19,8 @@ import SessionResultPage from './pages/specialist/SessionResultPage'
 import CMDashboardPage from './pages/cm/DashboardPage'
 import MatrixReviewPage from './pages/cm/MatrixReviewPage';
 import SpecialistDetailPage from './pages/cm/SpecialistDetailPage';
+
+const CMReviewPlaceholderPage = React.lazy(() => import('./pages/cm/CMReviewPlaceholderPage'));
 
 const ROLE_HOMES: Record<string, string> = {
   specialist: '/specialist/dashboard',
@@ -83,6 +86,7 @@ export const router = createBrowserRouter([
       { path: 'dashboard', element: <CMDashboardPage /> },
       { path: 'specialist/:specialistId', element: <SpecialistDetailPage /> },
       { path: 'matrix/:specialistId/review', element: <MatrixReviewPage /> },
+      { path: 'review/:type/:id', element: <CMReviewPlaceholderPage /> },
     ],
   },
   {

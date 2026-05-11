@@ -139,3 +139,22 @@ export interface SpecialistDetail {
   categoryScores: CategoryScore[]
   sessions: PaginatedResponse<SessionListItem>
 }
+
+export type PendingActionType = 'dispute' | 'promotion' | 'matrix_approval' | 'update_proposal'
+
+export interface PendingAction {
+  id: string
+  type: PendingActionType
+  specialistId: string
+  specialistName: string
+  description: string
+  date: string
+}
+
+export interface PendingActionsData {
+  disputes: PendingAction[]
+  promotions: PendingAction[]
+  matrixApprovals: PendingAction[]
+  updateProposals: PendingAction[]
+  total: number
+}

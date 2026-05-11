@@ -128,7 +128,19 @@
       "lastActive": "Остання активність {{date}}",
       "neverAssessed": "Ще не оцінювався",
       "inactiveWarning": "Неактивний {{days}} дн.",
-      "viewDetails": "Деталі"
+      "viewDetails": "Деталі",
+      "pendingActions": "Очікують дій",
+      "teamOverview": "Огляд команди"
+    },
+    "pending": {
+      "allCaughtUp": "Усе опрацьовано — немає незавершених дій",
+      "review": "Переглянути",
+      "groupLabel": {
+        "dispute": "Суперечки",
+        "promotion": "Підвищення",
+        "matrix_approval": "Підтвердження матриць",
+        "update_proposal": "Пропозиції оновлень"
+      }
     },
     "specialistDetail": {
       "back": "Назад до команди",

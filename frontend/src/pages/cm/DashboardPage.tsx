@@ -3,7 +3,8 @@ import { Box, Button, Chip, Link, Skeleton, Typography, useTheme } from '@mui/ma
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link as RouterLink, useNavigate } from 'react-router-dom'
-import { getCmTeam } from '../../api/cm'
+import { getCmPending, getCmTeam } from '../../api/cm'
+import PendingActionsPanel from '../../components/cm/PendingActionsPanel'
 import { useAuth } from '../../hooks/useAuth'
 import type { SpecialistLevel } from '../../types/domain'
 
@@ -28,37 +29,49 @@ export default function CMDashboardPage() {
   const theme = useTheme()
   const cmId = user?.id ?? ''
 
-  const { data: team, isLoading } = useQuery({
+  const { data: pendingData, isLoading: pendingLoading } = useQuery({
+    queryKey: ['cm', 'pending', cmId],
+    queryFn: getCmPending,
+    enabled: !!cmId,
+    staleTime: 30 * 1000,
+  })
+
+  const { data: team, isLoading: teamLoading } = useQuery({
     queryKey: ['cm', 'team', cmId],
     queryFn: getCmTeam,
     enabled: !!cmId,
     staleTime: 30 * 1000,
   })
 
-  if (isLoading) {
-    return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 3 }}>{t('cm.dashboard.title')}</Typography>
-        <Skeleton variant="rectangular" height={64} sx={{ mb: 1, borderRadius: 1 }} />
-        <Skeleton variant="rectangular" height={64} sx={{ mb: 1, borderRadius: 1 }} />
-        <Skeleton variant="rectangular" height={64} sx={{ mb: 1, borderRadius: 1 }} />
-      </Box>
-    )
-  }
-
-  if (!team || team.length === 0) {
-    return (
-      <Box>
-        <Typography variant="h5" sx={{ mb: 3 }}>{t('cm.dashboard.title')}</Typography>
-        <Typography color="text.secondary">{t('cm.dashboard.noSpecialists')}</Typography>
-      </Box>
-    )
-  }
-
   return (
     <Box>
       <Typography variant="h5" sx={{ mb: 3 }}>{t('cm.dashboard.title')}</Typography>
-      {team.map((specialist) => {
+
+      {/* Pending Actions Section — FIRST per UX spec */}
+      <Typography variant="h6" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+        {t('cm.dashboard.pendingActions')}
+        {(pendingData?.total ?? 0) > 0 && (
+          <Chip label={pendingData!.total} color="error" size="small" />
+        )}
+      </Typography>
+      <PendingActionsPanel data={pendingData} isLoading={pendingLoading} />
+
+      {/* Team Overview Section */}
+      <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>{t('cm.dashboard.teamOverview')}</Typography>
+
+      {teamLoading && (
+        <>
+          <Skeleton variant="rectangular" height={64} sx={{ mb: 1, borderRadius: 1 }} />
+          <Skeleton variant="rectangular" height={64} sx={{ mb: 1, borderRadius: 1 }} />
+          <Skeleton variant="rectangular" height={64} sx={{ mb: 1, borderRadius: 1 }} />
+        </>
+      )}
+
+      {!teamLoading && (!team || team.length === 0) && (
+        <Typography color="text.secondary">{t('cm.dashboard.noSpecialists')}</Typography>
+      )}
+
+      {!teamLoading && team && team.length > 0 && team.map((specialist) => {
         const inactive = isInactive(specialist.lastActivityAt)
         const levelKey = specialist.specialistLevel as SpecialistLevel | null
         return (

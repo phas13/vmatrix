@@ -126,7 +126,19 @@
       "lastActive": "Last active {{date}}",
       "neverAssessed": "Never assessed",
       "inactiveWarning": "Inactive {{days}}d",
-      "viewDetails": "View details"
+      "viewDetails": "View details",
+      "pendingActions": "Pending Actions",
+      "teamOverview": "Team Overview"
+    },
+    "pending": {
+      "allCaughtUp": "All caught up — no actions pending",
+      "review": "Review",
+      "groupLabel": {
+        "dispute": "Disputes",
+        "promotion": "Promotions",
+        "matrix_approval": "Matrix Approvals",
+        "update_proposal": "Update Proposals"
+      }
     },
     "specialistDetail": {
       "back": "Back to team",

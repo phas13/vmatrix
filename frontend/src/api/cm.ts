@@ -1,4 +1,4 @@
-import type { SpecialistCard, SpecialistDetail } from '../types/domain'
+import type { PendingActionsData, SpecialistCard, SpecialistDetail } from '../types/domain'
 import { apiClient } from './client'
 
 export async function getCmTeam(): Promise<SpecialistCard[]> {
@@ -15,5 +15,10 @@ export async function getCmSpecialistDetail(
     `/cm/specialists/${specialistId}`,
     { params: { page, per_page: perPage } },
   )
+  return response.data
+}
+
+export async function getCmPending(): Promise<PendingActionsData> {
+  const response = await apiClient.get<PendingActionsData>('/cm/pending')
   return response.data
 }

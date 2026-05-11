@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db_session, require_role
 from app.models.user import User, UserRole
-from app.schemas.cm import SpecialistCardRead, SpecialistDetailRead
+from app.schemas.cm import PendingActionsResponse, SpecialistCardRead, SpecialistDetailRead
 from app.services import cm_service
 
 router = APIRouter()
@@ -28,3 +28,11 @@ async def get_specialist_detail(
     current_user: User = Depends(require_role(UserRole.CM)),
 ) -> SpecialistDetailRead:
     return await cm_service.get_specialist_detail(current_user.id, specialist_id, db, page, per_page)
+
+
+@router.get("/pending", response_model=PendingActionsResponse)
+async def get_cm_pending(
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_role(UserRole.CM)),
+) -> PendingActionsResponse:
+    return await cm_service.get_pending_actions(current_user.id, db)

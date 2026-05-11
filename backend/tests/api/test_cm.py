@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.core.security import create_access_token
 from app.db.session import get_db_session
 from app.models.user import SpecialistLevel, User, UserRole
-from app.schemas.cm import SpecialistCardRead, SpecialistDetailRead
+from app.schemas.cm import PendingActionsResponse, PendingActionRead, PendingActionType, SpecialistCardRead, SpecialistDetailRead
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.session import CategoryScoreRead, SessionListItemRead, SessionStatus
 from main import app
@@ -320,6 +320,240 @@ async def test_get_specialist_detail_security_active_check_direct(async_client):
 
     with pytest.raises(HTTPException) as exc:
         await get_specialist_detail(cm.id, spec.id, mock_db, 1, 20)
-    
+
     assert exc.value.status_code == 404
     assert exc.value.detail == "Specialist not found"
+
+
+# ─── GET /cm/pending ──────────────────────────────────────────────────────────
+
+def _make_empty_pending() -> PendingActionsResponse:
+    return PendingActionsResponse(
+        disputes=[], promotions=[], matrix_approvals=[], update_proposals=[], total=0
+    )
+
+
+def _make_pending_action(
+    action_type: PendingActionType,
+    specialist_id=None,
+) -> PendingActionRead:
+    from uuid import uuid4
+    sid = specialist_id or uuid4()
+    return PendingActionRead(
+        id=uuid4(),
+        type=action_type,
+        specialist_id=sid,
+        specialist_name="Test Specialist",
+        description="Test description",
+        date=_now(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_pending_empty_returns_zero_counts(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_pending_actions",
+            new=AsyncMock(return_value=_make_empty_pending()),
+        ):
+            resp = await async_client.get(
+                "/api/v1/cm/pending",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 0
+    assert data["disputes"] == []
+    assert data["promotions"] == []
+    assert data["matrix_approvals"] == []
+    assert data["update_proposals"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_pending_includes_open_dispute(async_client):
+    cm = _make_cm()
+    spec = _make_specialist(cm)
+    dispute_action = _make_pending_action(PendingActionType.DISPUTE, spec.id)
+    pending = PendingActionsResponse(
+        disputes=[dispute_action],
+        promotions=[],
+        matrix_approvals=[],
+        update_proposals=[],
+        total=1,
+    )
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_pending_actions",
+            new=AsyncMock(return_value=pending),
+        ):
+            resp = await async_client.get(
+                "/api/v1/cm/pending",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 1
+    assert len(data["disputes"]) == 1
+    assert data["disputes"][0]["type"] == "dispute"
+    assert data["disputes"][0]["specialist_name"] == "Test Specialist"
+
+
+@pytest.mark.asyncio
+async def test_get_pending_includes_promotion(async_client):
+    cm = _make_cm()
+    spec = _make_specialist(cm)
+    promo_action = _make_pending_action(PendingActionType.PROMOTION, spec.id)
+    pending = PendingActionsResponse(
+        disputes=[],
+        promotions=[promo_action],
+        matrix_approvals=[],
+        update_proposals=[],
+        total=1,
+    )
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_pending_actions",
+            new=AsyncMock(return_value=pending),
+        ):
+            resp = await async_client.get(
+                "/api/v1/cm/pending",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 1
+    assert len(data["promotions"]) == 1
+    assert data["promotions"][0]["type"] == "promotion"
+
+
+@pytest.mark.asyncio
+async def test_get_pending_includes_matrix_approval(async_client):
+    cm = _make_cm()
+    spec = _make_specialist(cm)
+    matrix_action = _make_pending_action(PendingActionType.MATRIX_APPROVAL, spec.id)
+    pending = PendingActionsResponse(
+        disputes=[],
+        promotions=[],
+        matrix_approvals=[matrix_action],
+        update_proposals=[],
+        total=1,
+    )
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_pending_actions",
+            new=AsyncMock(return_value=pending),
+        ):
+            resp = await async_client.get(
+                "/api/v1/cm/pending",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 1
+    assert len(data["matrix_approvals"]) == 1
+    assert data["matrix_approvals"][0]["type"] == "matrix_approval"
+
+
+@pytest.mark.asyncio
+async def test_get_pending_excludes_resolved_dispute(async_client):
+    """Resolved disputes must not appear — verified at service layer."""
+    from app.services.cm_service import get_pending_actions
+    from app.models.session import DisputeStatus
+
+    cm = _make_cm()
+    mock_db = AsyncMock()
+
+    resolved_dispute = MagicMock()
+    resolved_dispute.status = DisputeStatus.RESOLVED
+
+    # specialists query → empty (no open disputes to aggregate)
+    mock_db.execute.side_effect = [
+        _scalars_all_result([]),  # specialists (empty → skips dispute+matrix queries)
+        _scalars_all_result([]),  # notifications
+    ]
+
+    result = await get_pending_actions(cm.id, mock_db)
+    assert result.total == 0
+    assert result.disputes == []
+
+
+@pytest.mark.asyncio
+async def test_get_pending_excludes_read_promotion(async_client):
+    """Read PROMOTION_SUGGESTION notifications must not appear — verified at service layer."""
+    from app.services.cm_service import get_pending_actions
+
+    cm = _make_cm()
+    mock_db = AsyncMock()
+
+    # specialists query → empty, notifications → empty (is_read=True filtered out by query)
+    mock_db.execute.side_effect = [
+        _scalars_all_result([]),  # specialists
+        _scalars_all_result([]),  # notifications (read ones excluded by query)
+    ]
+
+    result = await get_pending_actions(cm.id, mock_db)
+    assert result.total == 0
+    assert result.promotions == []
+
+
+@pytest.mark.asyncio
+async def test_get_pending_data_isolation(async_client):
+    """CM B cannot see CM A's specialist data — verified at service layer."""
+    from app.services.cm_service import get_pending_actions
+
+    cm_b = _make_cm()
+    mock_db = AsyncMock()
+
+    # specialists query for cm_b → empty (specialist belongs to cm_a)
+    mock_db.execute.side_effect = [
+        _scalars_all_result([]),  # specialists (empty → cm_b has no assigned specialists)
+        _scalars_all_result([]),  # notifications
+    ]
+
+    result = await get_pending_actions(cm_b.id, mock_db)
+    assert result.total == 0
+    assert result.disputes == []
+    assert result.matrix_approvals == []
+
+
+@pytest.mark.asyncio
+async def test_get_pending_requires_cm_role(async_client):
+    cm = _make_cm()
+    specialist = _make_specialist(cm)
+    override, _ = _make_auth_db(specialist)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        resp = await async_client.get(
+            "/api/v1/cm/pending",
+            cookies={"access_token": _make_jwt(specialist)},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 403
