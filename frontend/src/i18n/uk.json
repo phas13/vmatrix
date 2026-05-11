@@ -185,6 +185,28 @@
       "questionLabel": "П{{num}}",
       "aiRationaleLabel": "Обґрунтування AI",
       "responseLabel": "Відповідь фахівця"
+    },
+    "promotion": {
+      "loadError": "Не вдалося завантажити підвищення — повторіть спробу",
+      "approveError": "Не вдалося затвердити підвищення — спробуйте ще раз",
+      "rejectError": "Не вдалося відхилити підвищення — спробуйте ще раз",
+      "alreadyDecided": "Це підвищення вже було вирішено",
+      "approveSuccess": "Підвищення затверджено — перехід…",
+      "rejectSuccess": "Рішення збережено — перехід…",
+      "currentLevel": "Поточний рівень",
+      "nextLevel": "Підвищується до",
+      "overallProgress": "Загальний прогрес",
+      "threshold": "Поріг підвищення",
+      "categoryScores": "Оцінки по категоріях",
+      "sessionHistory": "Історія оцінювань",
+      "approve": "Затвердити",
+      "reject": "Відхилити",
+      "confirmReject": "Підтвердити відхилення",
+      "rejectNote": "Причина відхилення (необов'язково)",
+      "decidedApproved": "Рішення: Затверджено",
+      "decidedRejected": "Рішення: Відхилено",
+      "notAssessed": "Ще не оцінювалось",
+      "noSessions": "Сесій оцінювання ще немає"
     }
   },
   "session": {

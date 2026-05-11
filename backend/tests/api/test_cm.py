@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from app.core.security import create_access_token
 from app.db.session import get_db_session
 from app.models.user import SpecialistLevel, User, UserRole
-from app.schemas.cm import DisputeDecision, DisputeDetailRead, DisputeResolveResponse, PendingActionsResponse, PendingActionRead, PendingActionType, QuestionResponseItem, SpecialistCardRead, SpecialistDetailRead
+from app.schemas.cm import DisputeDecision, DisputeDetailRead, DisputeResolveResponse, PendingActionsResponse, PendingActionRead, PendingActionType, PromotionDetailRead, PromotionDecideResponse, QuestionResponseItem, SpecialistCardRead, SpecialistDetailRead
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.session import CategoryScoreRead, SessionListItemRead, SessionStatus
 from main import app
@@ -800,3 +800,256 @@ async def test_resolve_dispute_requires_cm_role(async_client):
         app.dependency_overrides.pop(get_db_session, None)
 
     assert resp.status_code == 403
+
+
+# ─── GET /cm/promotions/{id} and POST /cm/promotions/{id}/actions/* ───────────
+
+def _make_promotion_detail(specialist: MagicMock) -> PromotionDetailRead:
+    return PromotionDetailRead(
+        notification_id=uuid4(),
+        specialist_id=specialist.id,
+        specialist_name=specialist.full_name,
+        current_level="junior",
+        next_level="middle",
+        overall_percentage=92,
+        threshold=90,
+        category_scores=[
+            CategoryScoreRead(
+                category_id=uuid4(),
+                category_name="Cloud Infrastructure",
+                score=92,
+                previous_score=80,
+                last_assessed_at=_now(),
+            )
+        ],
+        sessions=PaginatedResponse[SessionListItemRead](
+            items=[], total=0, page=1, per_page=10, pages=1
+        ),
+        is_decided=False,
+    )
+
+
+def _make_decide_response(decision: str) -> PromotionDecideResponse:
+    return PromotionDecideResponse(
+        notification_id=uuid4(),
+        decision=decision,
+        new_level="middle" if decision == "approved" else None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_promotion_detail_ok(async_client):
+    cm = _make_cm()
+    specialist = _make_specialist(cm)
+    detail = _make_promotion_detail(specialist)
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_promotion_detail",
+            new=AsyncMock(return_value=detail),
+        ):
+            resp = await async_client.get(
+                f"/api/v1/cm/promotions/{detail.notification_id}",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["specialist_name"] == specialist.full_name
+    assert body["overall_percentage"] == 92
+    assert body["threshold"] == 90
+    assert body["is_decided"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_promotion_detail_wrong_cm(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_promotion_detail",
+            new=AsyncMock(side_effect=HTTPException(status_code=404, detail="Promotion not found")),
+        ):
+            resp = await async_client.get(
+                f"/api/v1/cm/promotions/{uuid4()}",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_promotion_detail_not_found(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_promotion_detail",
+            new=AsyncMock(side_effect=HTTPException(status_code=404, detail="Promotion not found")),
+        ):
+            resp = await async_client.get(
+                f"/api/v1/cm/promotions/{uuid4()}",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_approve_promotion_ok(async_client):
+    cm = _make_cm()
+    approve_resp = _make_decide_response("approved")
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.approve_promotion",
+            new=AsyncMock(return_value=approve_resp),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/promotions/{uuid4()}/actions/approve",
+                json={},
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["decision"] == "approved"
+    assert body["new_level"] == "middle"
+
+
+@pytest.mark.asyncio
+async def test_approve_promotion_already_decided(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.approve_promotion",
+            new=AsyncMock(side_effect=HTTPException(
+                status_code=409,
+                detail={"type": "https://vmatrix.app/errors/conflict", "title": "Conflict",
+                        "status": 409, "detail": "Promotion has already been decided"},
+            )),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/promotions/{uuid4()}/actions/approve",
+                json={},
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_approve_promotion_role_guard(async_client):
+    cm = _make_cm()
+    specialist = _make_specialist(cm)
+    override, _ = _make_auth_db(specialist)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        resp = await async_client.post(
+            f"/api/v1/cm/promotions/{uuid4()}/actions/approve",
+            json={},
+            cookies={"access_token": _make_jwt(specialist)},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_reject_promotion_ok(async_client):
+    cm = _make_cm()
+    reject_resp = _make_decide_response("rejected")
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.reject_promotion",
+            new=AsyncMock(return_value=reject_resp),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/promotions/{uuid4()}/actions/reject",
+                json={},
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["decision"] == "rejected"
+    assert body["new_level"] is None
+
+
+@pytest.mark.asyncio
+async def test_reject_promotion_already_decided(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.reject_promotion",
+            new=AsyncMock(side_effect=HTTPException(
+                status_code=409,
+                detail={"type": "https://vmatrix.app/errors/conflict", "title": "Conflict",
+                        "status": 409, "detail": "Promotion has already been decided"},
+            )),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/promotions/{uuid4()}/actions/reject",
+                json={},
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_reject_promotion_with_note(async_client):
+    cm = _make_cm()
+    reject_resp = _make_decide_response("rejected")
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.reject_promotion",
+            new=AsyncMock(return_value=reject_resp),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/promotions/{uuid4()}/actions/reject",
+                json={"cm_note": "Needs more experience in senior tasks"},
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["decision"] == "rejected"

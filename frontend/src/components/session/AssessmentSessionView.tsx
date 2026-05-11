@@ -57,7 +57,12 @@ export default function AssessmentSessionView({
         </Button>
       </Box>
 
-      <LinearProgress variant="determinate" value={progress} sx={{ height: 4 }} />
+      <LinearProgress
+        variant="determinate"
+        value={progress}
+        sx={{ height: 4 }}
+        aria-label={t('session.questionProgress', { current: questionIndex + 1, total: totalQuestions })}
+      />
 
       <Box
         sx={{

@@ -10,7 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.matrix import CompetencyCategory, CompetencyMatrix, MatrixStatus
 from app.models.notification import Notification, NotificationType
 from app.models.session import AssessmentSession, DisputeStatus, SessionDispute, SpecialistScore
-from app.models.user import User, UserRole
+from app.models.system_settings import SystemSettings
+from app.models.user import User, UserRole, SpecialistLevel
+import logging
+
 from app.schemas.cm import (
     DisputeDecision,
     DisputeDetailRead,
@@ -19,10 +22,15 @@ from app.schemas.cm import (
     PendingActionRead,
     PendingActionType,
     PendingActionsResponse,
+    PromotionDecideRequest,
+    PromotionDecideResponse,
+    PromotionDetailRead,
     QuestionResponseItem,
     SpecialistCardRead,
     SpecialistDetailRead,
 )
+
+logger = logging.getLogger(__name__)
 from app.services import level_service, session_service
 
 
@@ -160,7 +168,6 @@ async def get_pending_actions(cm_id: UUID, db: AsyncSession) -> PendingActionsRe
         )
     )
     promotions: list[PendingActionRead] = []
-    _uuid_pattern = re.compile(r'\[([a-f0-9-]{36})\]')
     for notification in promos_result.scalars().all():
         match = _uuid_pattern.search(notification.content)
         if not match:
@@ -193,6 +200,12 @@ async def get_pending_actions(cm_id: UUID, db: AsyncSession) -> PendingActionsRe
 
 
 _DISPUTE_NOT_FOUND = "Dispute not found"
+_uuid_pattern = re.compile(r'\[([a-f0-9-]{36})\]')
+_LEVEL_PROGRESSION: dict[SpecialistLevel, SpecialistLevel | None] = {
+    SpecialistLevel.JUNIOR: SpecialistLevel.MIDDLE,
+    SpecialistLevel.MIDDLE: SpecialistLevel.SENIOR,
+    SpecialistLevel.SENIOR: None,
+}
 
 
 async def get_dispute_detail(cm_id: UUID, dispute_id: UUID, db: AsyncSession) -> DisputeDetailRead:
@@ -332,4 +345,173 @@ async def resolve_dispute(
         cm_note=dispute.cm_note,
         resolved_at=dispute.resolved_at,
         updated_score=session.final_score if body.decision == DisputeDecision.OVERRIDDEN else None,
+    )
+
+
+async def get_promotion_detail(
+    cm_id: UUID,
+    notification_id: UUID,
+    db: AsyncSession,
+) -> PromotionDetailRead:
+    notification = await db.get(Notification, notification_id)
+    if notification is None or notification.user_id != cm_id or notification.type != NotificationType.PROMOTION_SUGGESTION:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+
+    match = _uuid_pattern.search(notification.content)
+    if not match:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+    try:
+        specialist_id = UUID(match.group(1))
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+
+    specialist = await db.get(User, specialist_id)
+    if specialist is None or specialist.cm_id != cm_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+
+    settings_result = await db.execute(select(SystemSettings).where(SystemSettings.id == 1))
+    settings = settings_result.scalar_one_or_none()
+    threshold = settings.promotion_threshold if settings else 90
+
+    dashboard = await level_service.get_dashboard_data(specialist_id, db)
+    sessions = await session_service.list_sessions(specialist_id, page=1, per_page=10, db=db)
+
+    next_level_enum = _LEVEL_PROGRESSION.get(specialist.specialist_level) if specialist.specialist_level else None
+    current_level = specialist.specialist_level.value if specialist.specialist_level else None
+    next_level = next_level_enum.value if next_level_enum else None
+
+    return PromotionDetailRead(
+        notification_id=notification.id,
+        specialist_id=specialist.id,
+        specialist_name=specialist.full_name,
+        current_level=current_level,
+        next_level=next_level,
+        overall_percentage=dashboard.overall_percentage,
+        threshold=threshold,
+        category_scores=dashboard.category_scores,
+        sessions=sessions,
+        is_decided=notification.is_read,
+    )
+
+
+async def approve_promotion(
+    cm_id: UUID,
+    notification_id: UUID,
+    body: PromotionDecideRequest,
+    db: AsyncSession,
+) -> PromotionDecideResponse:
+    notif_result = await db.execute(
+        select(Notification).where(Notification.id == notification_id).with_for_update()
+    )
+    notification = notif_result.scalar_one_or_none()
+    if notification is None or notification.user_id != cm_id or notification.type != NotificationType.PROMOTION_SUGGESTION:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+
+    if notification.is_read:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "type": "https://vmatrix.app/errors/conflict",
+                "title": "Conflict",
+                "status": 409,
+                "detail": "Promotion has already been decided",
+            },
+        )
+
+    match = _uuid_pattern.search(notification.content)
+    if not match:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+    try:
+        specialist_id = UUID(match.group(1))
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+
+    spec_result = await db.execute(
+        select(User).where(User.id == specialist_id).with_for_update()
+    )
+    specialist = spec_result.scalar_one_or_none()
+    if specialist is None or specialist.cm_id != cm_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+
+    new_level = _LEVEL_PROGRESSION.get(specialist.specialist_level) if specialist.specialist_level else None
+    if new_level:
+        specialist.specialist_level = new_level
+    else:
+        logger.warning(
+            "approve_promotion: specialist %s is already at senior level or has no level set",
+            specialist_id,
+        )
+
+    now = datetime.now(timezone.utc)
+    notification.is_read = True
+    notification.read_at = now
+
+    level_label = new_level.value.capitalize() if new_level else "Senior"
+    db.add(Notification(
+        user_id=specialist_id,
+        type=NotificationType.PROMOTION_APPROVED,
+        content=f"Congratulations — you've been promoted to {level_label}",
+    ))
+
+    await db.commit()
+
+    return PromotionDecideResponse(
+        notification_id=notification.id,
+        decision="approved",
+        new_level=new_level.value if new_level else None,
+    )
+
+
+async def reject_promotion(
+    cm_id: UUID,
+    notification_id: UUID,
+    body: PromotionDecideRequest,
+    db: AsyncSession,
+) -> PromotionDecideResponse:
+    notif_result = await db.execute(
+        select(Notification).where(Notification.id == notification_id).with_for_update()
+    )
+    notification = notif_result.scalar_one_or_none()
+    if notification is None or notification.user_id != cm_id or notification.type != NotificationType.PROMOTION_SUGGESTION:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+
+    if notification.is_read:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "type": "https://vmatrix.app/errors/conflict",
+                "title": "Conflict",
+                "status": 409,
+                "detail": "Promotion has already been decided",
+            },
+        )
+
+    match = _uuid_pattern.search(notification.content)
+    if not match:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+    try:
+        specialist_id = UUID(match.group(1))
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promotion not found")
+
+    now = datetime.now(timezone.utc)
+    notification.is_read = True
+    notification.read_at = now
+
+    content = "Your promotion request was reviewed — see CM feedback"
+    if body.cm_note and body.cm_note.strip():
+        content += f": {body.cm_note.strip()}"
+
+    db.add(Notification(
+        user_id=specialist_id,
+        type=NotificationType.PROMOTION_REJECTED,
+        content=content,
+    ))
+
+    await db.commit()
+
+    return PromotionDecideResponse(
+        notification_id=notification.id,
+        decision="rejected",
+        new_level=None,
     )

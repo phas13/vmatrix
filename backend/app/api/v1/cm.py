@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db_session, require_role
 from app.models.user import User, UserRole
-from app.schemas.cm import DisputeDetailRead, DisputeResolveRequest, DisputeResolveResponse, PendingActionsResponse, SpecialistCardRead, SpecialistDetailRead
+from app.schemas.cm import DisputeDetailRead, DisputeResolveRequest, DisputeResolveResponse, PendingActionsResponse, PromotionDecideRequest, PromotionDecideResponse, PromotionDetailRead, SpecialistCardRead, SpecialistDetailRead
 from app.services import cm_service
 
 router = APIRouter()
@@ -55,3 +55,32 @@ async def resolve_cm_dispute(
     current_user: User = Depends(require_role(UserRole.CM)),
 ) -> DisputeResolveResponse:
     return await cm_service.resolve_dispute(current_user.id, dispute_id, body, db)
+
+
+@router.get("/promotions/{notification_id}", response_model=PromotionDetailRead)
+async def get_cm_promotion(
+    notification_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_role(UserRole.CM)),
+) -> PromotionDetailRead:
+    return await cm_service.get_promotion_detail(current_user.id, notification_id, db)
+
+
+@router.post("/promotions/{notification_id}/actions/approve", response_model=PromotionDecideResponse)
+async def approve_cm_promotion(
+    notification_id: UUID,
+    body: PromotionDecideRequest,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_role(UserRole.CM)),
+) -> PromotionDecideResponse:
+    return await cm_service.approve_promotion(current_user.id, notification_id, body, db)
+
+
+@router.post("/promotions/{notification_id}/actions/reject", response_model=PromotionDecideResponse)
+async def reject_cm_promotion(
+    notification_id: UUID,
+    body: PromotionDecideRequest,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_role(UserRole.CM)),
+) -> PromotionDecideResponse:
+    return await cm_service.reject_promotion(current_user.id, notification_id, body, db)

@@ -199,3 +199,26 @@ export interface ResolveDisputeResponse {
   resolvedAt: string
   updatedScore: number | null
 }
+
+export interface PromotionDetailData {
+  notificationId: string
+  specialistId: string
+  specialistName: string
+  currentLevel: SpecialistLevel | null
+  nextLevel: SpecialistLevel | null
+  overallPercentage: number
+  threshold: number
+  categoryScores: CategoryScore[]
+  sessions: PaginatedResponse<SessionListItem>
+  isDecided: boolean
+}
+
+export interface PromotionDecideRequest {
+  cmNote?: string
+}
+
+export interface PromotionDecideResponse {
+  notificationId: string
+  decision: string
+  newLevel: SpecialistLevel | null
+}

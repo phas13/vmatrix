@@ -183,6 +183,28 @@
       "questionLabel": "Q{{num}}",
       "aiRationaleLabel": "AI Rationale",
       "responseLabel": "Specialist Response"
+    },
+    "promotion": {
+      "loadError": "Failed to load promotion — please retry",
+      "approveError": "Failed to approve promotion — please try again",
+      "rejectError": "Failed to reject promotion — please try again",
+      "alreadyDecided": "This promotion has already been decided",
+      "approveSuccess": "Promotion approved — navigating…",
+      "rejectSuccess": "Decision recorded — navigating…",
+      "currentLevel": "Current Level",
+      "nextLevel": "Promoted To",
+      "overallProgress": "Overall Progress",
+      "threshold": "Promotion Threshold",
+      "categoryScores": "Category Scores",
+      "sessionHistory": "Session History",
+      "approve": "Approve",
+      "reject": "Reject",
+      "confirmReject": "Confirm Rejection",
+      "rejectNote": "Rejection Reason (optional)",
+      "decidedApproved": "Decision: Approved",
+      "decidedRejected": "Decision: Rejected",
+      "notAssessed": "Not assessed",
+      "noSessions": "No assessment sessions yet"
     }
   },
   "session": {

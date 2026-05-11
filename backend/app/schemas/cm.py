@@ -122,3 +122,30 @@ class DisputeResolveResponse(BaseModel):
     cm_note: str | None
     resolved_at: datetime
     updated_score: int | None
+
+
+class PromotionDetailRead(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+
+    notification_id: UUID
+    specialist_id: UUID
+    specialist_name: str
+    current_level: str | None
+    next_level: str | None
+    overall_percentage: int
+    threshold: int
+    category_scores: list[CategoryScoreRead]
+    sessions: PaginatedResponse[SessionListItemRead]
+    is_decided: bool
+
+
+class PromotionDecideRequest(BaseModel):
+    cm_note: str | None = None
+
+
+class PromotionDecideResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+
+    notification_id: UUID
+    decision: str
+    new_level: str | None

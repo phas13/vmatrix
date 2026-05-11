@@ -1,4 +1,4 @@
-import type { DisputeDetailData, PendingActionsData, ResolveDisputeRequest, ResolveDisputeResponse, SpecialistCard, SpecialistDetail } from '../types/domain'
+import type { DisputeDetailData, PendingActionsData, PromotionDecideRequest, PromotionDecideResponse, PromotionDetailData, ResolveDisputeRequest, ResolveDisputeResponse, SpecialistCard, SpecialistDetail } from '../types/domain'
 import { apiClient } from './client'
 
 export async function getCmTeam(): Promise<SpecialistCard[]> {
@@ -39,6 +39,33 @@ export async function resolveCmDispute(
       cm_note: data.cmNote ?? null,
       override_score: data.overrideScore ?? null,
     },
+  )
+  return response.data
+}
+
+export async function getCmPromotionDetail(notificationId: string): Promise<PromotionDetailData> {
+  const response = await apiClient.get<PromotionDetailData>(`/cm/promotions/${notificationId}`)
+  return response.data
+}
+
+export async function approveCmPromotion(
+  notificationId: string,
+  data: PromotionDecideRequest,
+): Promise<PromotionDecideResponse> {
+  const response = await apiClient.post<PromotionDecideResponse>(
+    `/cm/promotions/${notificationId}/actions/approve`,
+    { cm_note: data.cmNote ?? null },
+  )
+  return response.data
+}
+
+export async function rejectCmPromotion(
+  notificationId: string,
+  data: PromotionDecideRequest,
+): Promise<PromotionDecideResponse> {
+  const response = await apiClient.post<PromotionDecideResponse>(
+    `/cm/promotions/${notificationId}/actions/reject`,
+    { cm_note: data.cmNote ?? null },
   )
   return response.data
 }
