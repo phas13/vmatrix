@@ -37,15 +37,16 @@ async def get_team_overview(cm_id: UUID, db: AsyncSession) -> list[SpecialistCar
         row.specialist_id: row.last_activity_at for row in activity_result.all()
     }
 
+    percentage_map = await level_service.calculate_bulk_percentages(spec_ids, db)
+
     cards: list[SpecialistCardRead] = []
     for specialist in specialists:
-        percentage = await level_service.calculate_percentage(specialist.id, db)
         cards.append(
             SpecialistCardRead(
                 id=specialist.id,
                 full_name=specialist.full_name,
                 specialist_level=specialist.specialist_level,
-                overall_percentage=percentage,
+                overall_percentage=percentage_map.get(specialist.id, 0),
                 last_activity_at=last_activity_map.get(specialist.id),
             )
         )
@@ -60,7 +61,12 @@ async def get_specialist_detail(
     per_page: int,
 ) -> SpecialistDetailRead:
     specialist = await db.get(User, specialist_id)
-    if not specialist or specialist.cm_id != cm_id or specialist.role != UserRole.SPECIALIST:
+    if (
+        not specialist
+        or not specialist.is_active
+        or specialist.cm_id != cm_id
+        or specialist.role != UserRole.SPECIALIST
+    ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Specialist not found")
 
     dashboard = await level_service.get_dashboard_data(specialist_id, db)

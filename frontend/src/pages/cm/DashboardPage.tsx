@@ -1,8 +1,8 @@
 import WarningAmberIcon from '@mui/icons-material/WarningAmber'
-import { Box, Button, Chip, Skeleton, Typography, useTheme } from '@mui/material'
+import { Box, Button, Chip, Link, Skeleton, Typography, useTheme } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router-dom'
+import { Link as RouterLink, useNavigate } from 'react-router-dom'
 import { getCmTeam } from '../../api/cm'
 import { useAuth } from '../../hooks/useAuth'
 import type { SpecialistLevel } from '../../types/domain'
@@ -76,13 +76,19 @@ export default function CMDashboardPage() {
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-              <Typography
+              <Link
+                component={RouterLink}
+                to={`/cm/specialist/${specialist.id}`}
                 variant="body1"
-                sx={{ fontWeight: 500, cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                onClick={() => navigate(`/cm/specialist/${specialist.id}`)}
+                sx={{
+                  fontWeight: 500,
+                  color: 'text.primary',
+                  textDecoration: 'none',
+                  '&:hover': { textDecoration: 'underline' },
+                }}
               >
                 {specialist.fullName}
-              </Typography>
+              </Link>
               <Chip
                 label={t(`levels.${levelKey ?? 'unknown'}`)}
                 color={LEVEL_CHIP_COLOR[levelKey ?? ''] ?? 'default'}

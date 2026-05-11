@@ -278,3 +278,48 @@ async def test_get_specialist_detail_requires_cm_role(async_client):
         app.dependency_overrides.pop(get_db_session, None)
 
     assert response.status_code == 403
+
+# ─── New Tests for Story 6.1 Review Findings ───────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_team_overview_performance_bulk_query(async_client):
+    """Verify that get_team_overview uses bulk percentage calculation."""
+    from app.services.cm_service import get_team_overview
+
+    cm = _make_cm()
+    spec1 = _make_specialist(cm)
+    spec2 = _make_specialist(cm)
+
+    mock_db = AsyncMock()
+    # 1. Specialists query
+    # 2. Activity batch query
+    # 3. Bulk percentages query
+    mock_db.execute.side_effect = [
+        _scalars_all_result([spec1, spec2]), # specialists
+        MagicMock(all=lambda: []), # activity
+        _scalars_all_result([]), # bulk matrix query in calculate_bulk_percentages
+        _scalars_all_result([]), # bulk category counts query
+        _scalars_all_result([]), # bulk scores query
+    ]
+
+    cards = await get_team_overview(cm.id, mock_db)
+    assert len(cards) == 2
+
+
+@pytest.mark.asyncio
+async def test_get_specialist_detail_security_active_check_direct(async_client):
+    """Verify that deactivated specialists are not accessible at service level."""
+    from app.services.cm_service import get_specialist_detail
+
+    cm = _make_cm()
+    spec = _make_specialist(cm)
+    spec.is_active = False # DEACTIVATED
+
+    mock_db = AsyncMock()
+    mock_db.get = AsyncMock(return_value=spec)
+
+    with pytest.raises(HTTPException) as exc:
+        await get_specialist_detail(cm.id, spec.id, mock_db, 1, 20)
+    
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Specialist not found"
