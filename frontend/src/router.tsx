@@ -9,16 +9,16 @@ import HRLayout from './layouts/HRLayout';
 import AdminLayout from './layouts/AdminLayout';
 import LoginPage from './pages/LoginPage';
 import PlaceholderPage from './pages/PlaceholderPage';
-import UsersPage from './pages/admin/UsersPage';
-import SettingsPage from './pages/admin/SettingsPage';
-import DashboardPage from './pages/specialist/DashboardPage'
-import HistoryPage from './pages/specialist/HistoryPage'
-import MatrixPage from './pages/specialist/MatrixPage'
-import SessionPage from './pages/specialist/SessionPage'
-import SessionResultPage from './pages/specialist/SessionResultPage'
-import CMDashboardPage from './pages/cm/DashboardPage'
-import MatrixReviewPage from './pages/cm/MatrixReviewPage';
-import SpecialistDetailPage from './pages/cm/SpecialistDetailPage';
+const UsersPage = React.lazy(() => import('./pages/admin/UsersPage'));
+const SettingsPage = React.lazy(() => import('./pages/admin/SettingsPage'));
+const DashboardPage = React.lazy(() => import('./pages/specialist/DashboardPage'));
+const HistoryPage = React.lazy(() => import('./pages/specialist/HistoryPage'));
+const MatrixPage = React.lazy(() => import('./pages/specialist/MatrixPage'));
+const SessionPage = React.lazy(() => import('./pages/specialist/SessionPage'));
+const SessionResultPage = React.lazy(() => import('./pages/specialist/SessionResultPage'));
+const CMDashboardPage = React.lazy(() => import('./pages/cm/DashboardPage'));
+const MatrixReviewPage = React.lazy(() => import('./pages/cm/MatrixReviewPage'));
+const SpecialistDetailPage = React.lazy(() => import('./pages/cm/SpecialistDetailPage'));
 
 const CMReviewPlaceholderPage = React.lazy(() => import('./pages/cm/CMReviewPlaceholderPage'));
 const DisputeReviewPage = React.lazy(() => import('./pages/cm/DisputeReviewPage'));

@@ -137,6 +137,8 @@ class PromotionDetailRead(BaseModel):
     category_scores: list[CategoryScoreRead]
     sessions: PaginatedResponse[SessionListItemRead]
     is_decided: bool
+    decision: str | None = None
+    cm_note: str | None = None
 
 
 class PromotionDecideRequest(BaseModel):

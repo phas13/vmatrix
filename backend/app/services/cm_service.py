@@ -305,6 +305,14 @@ async def resolve_dispute(
         # CM override always wins, regardless of whether a newer assessment
         # session has produced a different score for this (specialist, category).
         # Product decision: dispute-resolution is authoritative.
+        if body.override_score == session.final_score:
+            logger.info(
+                "resolve_dispute: override score %s is identical to current score %s for session %s",
+                body.override_score,
+                session.final_score,
+                session.id,
+            )
+        
         session.final_score = body.override_score
 
         # Idempotent upsert via PostgreSQL ON CONFLICT against
@@ -352,6 +360,8 @@ async def get_promotion_detail(
     cm_id: UUID,
     notification_id: UUID,
     db: AsyncSession,
+    page: int = 1,
+    per_page: int = 10,
 ) -> PromotionDetailRead:
     notification = await db.get(Notification, notification_id)
     if notification is None or notification.user_id != cm_id or notification.type != NotificationType.PROMOTION_SUGGESTION:
@@ -374,11 +384,24 @@ async def get_promotion_detail(
     threshold = settings.promotion_threshold if settings else 90
 
     dashboard = await level_service.get_dashboard_data(specialist_id, db)
-    sessions = await session_service.list_sessions(specialist_id, page=1, per_page=10, db=db)
+    sessions = await session_service.list_sessions(specialist_id, page, per_page, db)
 
     next_level_enum = _LEVEL_PROGRESSION.get(specialist.specialist_level) if specialist.specialist_level else None
     current_level = specialist.specialist_level.value if specialist.specialist_level else None
     next_level = next_level_enum.value if next_level_enum else None
+
+    # Parse decision and note if decided
+    decision = None
+    cm_note = None
+    if notification.is_read:
+        if notification.content.startswith("[APPROVED]"):
+            decision = "approved"
+        elif notification.content.startswith("[REJECTED]"):
+            decision = "rejected"
+        
+        # Extract note if exists: "[REJECTED] content: note"
+        if ": " in notification.content:
+            cm_note = notification.content.split(": ", 1)[1]
 
     return PromotionDetailRead(
         notification_id=notification.id,
@@ -391,6 +414,8 @@ async def get_promotion_detail(
         category_scores=dashboard.category_scores,
         sessions=sessions,
         is_decided=notification.is_read,
+        decision=decision,
+        cm_note=cm_note,
     )
 
 
@@ -445,12 +470,20 @@ async def approve_promotion(
     now = datetime.now(timezone.utc)
     notification.is_read = True
     notification.read_at = now
+    notification.content = f"[APPROVED] {notification.content}"
+    if body.cm_note and body.cm_note.strip():
+        notification.content += f": {body.cm_note.strip()}"
 
-    level_label = new_level.value.capitalize() if new_level else "Senior"
+    if new_level:
+        level_label = new_level.value.capitalize()
+        content = f"Congratulations — you've been promoted to {level_label}"
+    else:
+        content = "Your promotion was approved, but you are already at the highest level (Senior)"
+    
     db.add(Notification(
         user_id=specialist_id,
         type=NotificationType.PROMOTION_APPROVED,
-        content=f"Congratulations — you've been promoted to {level_label}",
+        content=content,
     ))
 
     await db.commit()
@@ -497,6 +530,9 @@ async def reject_promotion(
     now = datetime.now(timezone.utc)
     notification.is_read = True
     notification.read_at = now
+    notification.content = f"[REJECTED] {notification.content}"
+    if body.cm_note and body.cm_note.strip():
+        notification.content += f": {body.cm_note.strip()}"
 
     content = "Your promotion request was reviewed — see CM feedback"
     if body.cm_note and body.cm_note.strip():

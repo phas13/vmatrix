@@ -23,7 +23,7 @@ export default function AssessmentSessionView({
   const { t } = useTranslation()
   const theme = useTheme()
 
-  const progress = ((questionIndex + 1) / totalQuestions) * 100
+  const progress = totalQuestions > 0 ? ((questionIndex + 1) / totalQuestions) * 100 : 0
 
   return (
     <Box
@@ -98,12 +98,6 @@ export default function AssessmentSessionView({
           value={draftAnswer}
           onChange={(e) => onAnswerChange(e.target.value)}
           disabled={isSubmitting}
-          onKeyDown={(e) => {
-            // Enter key must NOT submit — button click required (AC3)
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.stopPropagation()
-            }
-          }}
           aria-label={t('session.answerLabel')}
         />
 

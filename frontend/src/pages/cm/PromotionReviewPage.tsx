@@ -1,12 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import { Alert, Box, Button, Chip, CircularProgress, LinearProgress, TextField, Typography } from '@mui/material'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AxiosError } from 'axios'
+import axios, { AxiosError } from 'axios'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router-dom'
 import { approveCmPromotion, getCmPending, getCmPromotionDetail, rejectCmPromotion } from '../../api/cm'
 import SplitPanelReview from '../../components/cm/SplitPanelReview'
 import { useAuth } from '../../hooks/useAuth'
+
+function ScoreDelta({ current, previous }: { current: number, previous: number | null | undefined }) {
+  if (previous == null) return null
+  const diff = current - previous
+  const sign = diff >= 0 ? '+' : '-'
+  return (
+    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+      ({sign}{Math.abs(diff)})
+    </Typography>
+  )
+}
 
 export default function PromotionReviewPage() {
   const { t } = useTranslation()
@@ -45,10 +56,13 @@ export default function PromotionReviewPage() {
         queryKey: ['cm', 'pending', cmId],
         queryFn: getCmPending,
       })
-      nextPromotionId = pending.promotions[0]?.id ?? null
+      const otherPromos = pending.promotions.filter(p => p.id !== id)
+      nextPromotionId = otherPromos.length > 0 ? otherPromos[0].id : null
     } catch {
       // fall through to dashboard
     }
+    
+    // Ensure 1.5s delay is respected regardless of query timing
     navigateTimeoutRef.current = setTimeout(() => {
       if (nextPromotionId) {
         navigate(`/cm/review/promotion/${nextPromotionId}`)
@@ -69,8 +83,7 @@ export default function PromotionReviewPage() {
       await navigateAfterDecision()
     },
     onError: (err) => {
-      const axiosErr = err as AxiosError
-      if (axiosErr?.response?.status === 409) {
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
         setActionErrorMsg(t('cm.promotion.alreadyDecided'))
         queryClient.invalidateQueries({ queryKey: ['cm', 'promotion', id] })
       } else {
@@ -90,8 +103,7 @@ export default function PromotionReviewPage() {
       await navigateAfterDecision()
     },
     onError: (err) => {
-      const axiosErr = err as AxiosError
-      if (axiosErr?.response?.status === 409) {
+      if (axios.isAxiosError(err) && err.response?.status === 409) {
         setActionErrorMsg(t('cm.promotion.alreadyDecided'))
         queryClient.invalidateQueries({ queryKey: ['cm', 'promotion', id] })
       } else {
@@ -140,11 +152,7 @@ export default function PromotionReviewPage() {
               <Typography variant="body2">{cs.categoryName}</Typography>
               <Typography variant="body2">
                 {cs.score ?? '—'}
-                {cs.previousScore != null && (
-                  <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
-                    ({cs.previousScore > (cs.score ?? 0) ? '-' : '+'}{Math.abs((cs.score ?? 0) - cs.previousScore)})
-                  </Typography>
-                )}
+                <ScoreDelta current={cs.score ?? 0} previous={cs.previousScore} />
               </Typography>
             </Box>
           ))
@@ -211,7 +219,7 @@ export default function PromotionReviewPage() {
 
       {data.isDecided ? (
         <Typography>
-          {t(data.currentLevel === data.nextLevel ? 'cm.promotion.decidedApproved' : 'cm.promotion.decidedApproved')}
+          {t(data.decision === 'approved' ? 'cm.promotion.decidedApproved' : 'cm.promotion.decidedRejected')}
         </Typography>
       ) : (
         <Box>

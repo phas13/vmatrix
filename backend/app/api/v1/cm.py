@@ -60,10 +60,12 @@ async def resolve_cm_dispute(
 @router.get("/promotions/{notification_id}", response_model=PromotionDetailRead)
 async def get_cm_promotion(
     notification_id: UUID,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(10, ge=1, le=100),
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_role(UserRole.CM)),
 ) -> PromotionDetailRead:
-    return await cm_service.get_promotion_detail(current_user.id, notification_id, db)
+    return await cm_service.get_promotion_detail(current_user.id, notification_id, db, page, per_page)
 
 
 @router.post("/promotions/{notification_id}/actions/approve", response_model=PromotionDecideResponse)
