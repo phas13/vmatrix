@@ -13,11 +13,11 @@ from app.core.dependencies import verify_specialist_ownership
 from app.core.exceptions import LLMUnavailableError, ProblemHTTPException
 from app.core.security import encrypt_field
 from app.models.llm_call_log import LLMCallLog, LLMOperation
-from app.models.matrix import CompetencyCategory, CompetencyMatrix, CompetencySubItem, MatrixStatus
+from app.models.matrix import CompetencyCategory, CompetencyMatrix, CompetencySubItem, MatrixStatus, MatrixUpdateProposal, ProposalStatus
 from app.models.notification import Notification, NotificationType
 from app.models.system_settings import SystemSettings
 from app.models.user import User, UserRole
-from app.providers.base import MatrixGenerationContext
+from app.providers.base import MatrixGenerationContext, MatrixUpdateProposalDraft
 from app.providers.factory import get_llm_provider
 from app.schemas.matrix import MatrixApproveRequest
 from app.services.prompt_builder import build_matrix_generation_prompt
@@ -576,3 +576,30 @@ async def approve_matrix(
         )
     )
     return approved_matrix.scalar_one()
+
+
+async def save_proposal(
+    db: AsyncSession, draft: MatrixUpdateProposalDraft
+) -> MatrixUpdateProposal | None:
+    # Check for existing duplicate pending proposal
+    existing_result = await db.execute(
+        select(MatrixUpdateProposal).where(
+            MatrixUpdateProposal.proposed_change == draft.proposed_change,
+            MatrixUpdateProposal.source_url == draft.source_url,
+            MatrixUpdateProposal.status == ProposalStatus.PENDING,
+        ).limit(1)
+    )
+    if existing_result.scalar_one_or_none():
+        return None
+
+    proposal = MatrixUpdateProposal(
+        proposed_change=draft.proposed_change,
+        source_name=draft.source_name,
+        source_url=draft.source_url,
+        source_date=draft.source_date,
+        matrix_id=draft.matrix_id,
+        status=ProposalStatus.PENDING,
+    )
+    db.add(proposal)
+    await db.flush()
+    return proposal

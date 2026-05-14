@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import date as date_type
 
 import anthropic
 
@@ -9,6 +10,8 @@ from app.providers.base import (
     AssessmentQuestionDraft,
     CategoryDraft,
     MatrixGenerationContext,
+    MatrixMonitoringContext,
+    MatrixUpdateProposalDraft,
     QuestionFeedback,
     QuestionGenerationContext,
     ResponseEvaluationContext,
@@ -99,6 +102,51 @@ _EVALUATION_TOOL = {
         "required": ["score", "strengths", "areas_for_growth", "per_question_feedback"],
     },
 }
+
+
+_MATRIX_PROPOSALS_TOOL = {
+    "name": "return_matrix_proposals",
+    "description": "Return proposed competency matrix updates based on industry source content",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "proposals": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "proposed_change": {
+                            "type": "string",
+                            "description": "Specific proposed change to the competency matrix",
+                        },
+                        "source_date": {
+                            "type": "string",
+                            "description": "Date of the source content in YYYY-MM-DD format, or empty string if unknown",
+                        },
+                    },
+                    "required": ["proposed_change", "source_date"],
+                },
+            }
+        },
+        "required": ["proposals"],
+    },
+}
+
+
+def _build_monitoring_prompt(context: MatrixMonitoringContext) -> str:
+    current = "\n".join(
+        f"- {cat.name}: {', '.join(si.name for si in cat.sub_items[:5])}"
+        for cat in context.current_categories
+    )
+    return (
+        f"You are reviewing an industry source to identify competency matrix updates.\n\n"
+        f"SOURCE: {context.source.name}\n"
+        f"CONTENT (excerpt):\n{context.source.content[:8000]}\n\n"
+        f"CURRENT MATRIX STRUCTURE:\n{current or 'No approved matrix available'}\n\n"
+        "Identify 0–3 specific, actionable updates that should be proposed to the competency matrix "
+        "based on this source. Only propose changes supported by evidence in the source. "
+        "If no updates are warranted, return an empty proposals array."
+    )
 
 
 class ClaudeProvider:
@@ -315,5 +363,75 @@ class ClaudeProvider:
 
         return result, latency_ms, tokens_used
 
-    async def propose_matrix_updates(self, context) -> list:
-        raise NotImplementedError("Implemented in Story 7.1")
+    async def propose_matrix_updates(
+        self, context: MatrixMonitoringContext
+    ) -> list[MatrixUpdateProposalDraft]:
+        prompt = _build_monitoring_prompt(context)
+        start = time.monotonic()
+        try:
+            response = await self._client.messages.create(
+                model=settings.LLM_MODEL,
+                max_tokens=2048,
+                tools=[_MATRIX_PROPOSALS_TOOL],
+                tool_choice={"type": "tool", "name": "return_matrix_proposals"},
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception as exc:
+            logger.error("Claude API failure during matrix update proposals: %s", exc)
+            raise LLMUnavailableError(str(exc)) from exc
+
+        latency_ms = int((time.monotonic() - start) * 1000)
+        usage = getattr(response, "usage", None)
+        tokens_used = (
+            (getattr(usage, "input_tokens", 0) or 0)
+            + (getattr(usage, "output_tokens", 0) or 0)
+        )
+        logger.info(
+            "propose_matrix_updates: source=%r latency_ms=%d tokens=%d",
+            context.source.name,
+            latency_ms,
+            tokens_used,
+        )
+
+        try:
+            tool_block = next((b for b in response.content if b.type == "tool_use"), None)
+            if tool_block is None:
+                return []
+
+            raw = tool_block.input
+            raw_proposals = raw.get("proposals") or []
+            if not isinstance(raw_proposals, list):
+                return []
+
+            results: list[MatrixUpdateProposalDraft] = []
+            for p in raw_proposals:
+                if not isinstance(p, dict):
+                    continue
+                proposed_change = p.get("proposed_change", "").strip()
+                if not proposed_change:
+                    continue
+                source_date_str = p.get("source_date", "").strip()
+                parsed_date: date_type | None = None
+                if source_date_str:
+                    try:
+                        from datetime import datetime as _dt
+                        parsed_date = _dt.strptime(source_date_str, "%Y-%m-%d").date()
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            "propose_matrix_updates: failed to parse source_date %r for source %r",
+                            source_date_str,
+                            context.source.name,
+                        )
+                        parsed_date = None
+                results.append(
+                    MatrixUpdateProposalDraft(
+                        proposed_change=proposed_change,
+                        source_name=context.source.name,
+                        source_url=context.source.url,
+                        source_date=parsed_date,
+                    )
+                )
+            return results
+        except Exception as exc:
+            logger.error("Claude response parsing failure (matrix proposals): %s", exc)
+            raise LLMUnavailableError(f"Malformed Claude response: {exc}") from exc

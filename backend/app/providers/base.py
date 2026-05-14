@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date
 from typing import Protocol
 from uuid import UUID
 
@@ -78,6 +79,40 @@ class SessionEvaluationResult:
     per_question_feedback: list[QuestionFeedback]
 
 
+@dataclass
+class SourceContent:
+    name: str
+    url: str
+    content: str
+
+
+@dataclass
+class CurrentSubItem:
+    name: str
+    description: str
+
+
+@dataclass
+class CurrentCategory:
+    name: str
+    sub_items: list[CurrentSubItem]
+
+
+@dataclass
+class MatrixMonitoringContext:
+    source: SourceContent
+    current_categories: list[CurrentCategory]
+
+
+@dataclass
+class MatrixUpdateProposalDraft:
+    proposed_change: str
+    source_name: str
+    source_url: str
+    source_date: date | None
+    matrix_id: UUID | None = None
+
+
 class LLMProvider(Protocol):
     async def health_check(self) -> None:
         """Verifies connectivity to the LLM provider.
@@ -101,5 +136,6 @@ class LLMProvider(Protocol):
         """Returns (result, latency_ms, tokens_used)."""
         ...
 
-    # Story 7.1
-    async def propose_matrix_updates(self, context) -> list: ...
+    async def propose_matrix_updates(
+        self, context: MatrixMonitoringContext
+    ) -> list[MatrixUpdateProposalDraft]: ...

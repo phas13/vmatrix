@@ -495,6 +495,7 @@ async def test_get_pending_excludes_resolved_dispute(async_client):
     mock_db.execute.side_effect = [
         _scalars_all_result([]),  # specialists (empty → skips dispute+matrix queries)
         _scalars_all_result([]),  # notifications
+        _scalars_all_result([]),  # update proposals
     ]
 
     result = await get_pending_actions(cm.id, mock_db)
@@ -514,6 +515,7 @@ async def test_get_pending_excludes_read_promotion(async_client):
     mock_db.execute.side_effect = [
         _scalars_all_result([]),  # specialists
         _scalars_all_result([]),  # notifications (read ones excluded by query)
+        _scalars_all_result([]),  # update proposals
     ]
 
     result = await get_pending_actions(cm.id, mock_db)
@@ -533,6 +535,7 @@ async def test_get_pending_data_isolation(async_client):
     mock_db.execute.side_effect = [
         _scalars_all_result([]),  # specialists (empty → cm_b has no assigned specialists)
         _scalars_all_result([]),  # notifications
+        _scalars_all_result([]),  # update proposals
     ]
 
     result = await get_pending_actions(cm_b.id, mock_db)

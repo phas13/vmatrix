@@ -1,5 +1,5 @@
 from app.models.llm_call_log import LLMCallLog, LLMOperation
-from app.models.matrix import CompetencyCategory, CompetencyMatrix, CompetencySubItem, MatrixStatus
+from app.models.matrix import CompetencyCategory, CompetencyMatrix, CompetencySubItem, MatrixStatus, MatrixUpdateProposal, ProposalStatus
 from app.models.notification import Notification, NotificationType
 from app.models.session import (
     AssessmentSession,
@@ -18,6 +18,7 @@ __all__ = [
     "Notification", "NotificationType",
     "SystemSettings",
     "CompetencyMatrix", "CompetencyCategory", "CompetencySubItem", "MatrixStatus",
+    "MatrixUpdateProposal", "ProposalStatus",
     "LLMCallLog", "LLMOperation",
     "AssessmentSession", "SessionStatus",
     "AssessmentQuestion",

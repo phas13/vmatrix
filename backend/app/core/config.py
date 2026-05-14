@@ -39,3 +39,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+MONITORING_INTERVAL_HOURS: int = 24
+MONITORING_SOURCES: list[dict[str, str]] = [
+    {"name": "CNCF Landscape", "url": "https://landscape.cncf.io/"},
+    {"name": "Linux Foundation Research", "url": "https://www.linuxfoundation.org/research"},
+    {"name": "ThoughtWorks Technology Radar", "url": "https://www.thoughtworks.com/radar"},
+]

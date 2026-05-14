@@ -6,11 +6,14 @@ from fastapi.responses import JSONResponse
 from app.api.v1 import router as v1_router
 from app.core.exceptions import ProblemHTTPException
 from app.db.session import engine
+from app.services.monitoring_service import setup_scheduler, shutdown_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_scheduler()
     yield
+    shutdown_scheduler()
     await engine.dispose()
 
 

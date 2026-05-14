@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.matrix import CompetencyCategory, CompetencyMatrix, MatrixStatus
+from app.models.matrix import CompetencyCategory, CompetencyMatrix, MatrixStatus, MatrixUpdateProposal, ProposalStatus
 from app.models.notification import Notification, NotificationType
 from app.models.session import AssessmentSession, DisputeStatus, SessionDispute, SpecialistScore
 from app.models.system_settings import SystemSettings
@@ -188,6 +188,22 @@ async def get_pending_actions(cm_id: UUID, db: AsyncSession) -> PendingActionsRe
         )
 
     update_proposals: list[PendingActionRead] = []
+    proposals_result = await db.execute(
+        select(MatrixUpdateProposal).where(
+            MatrixUpdateProposal.status == ProposalStatus.PENDING
+        )
+    )
+    for proposal in proposals_result.scalars().all():
+        update_proposals.append(
+            PendingActionRead(
+                id=proposal.id,
+                type=PendingActionType.UPDATE_PROPOSAL,
+                specialist_id=UUID("00000000-0000-0000-0000-000000000000"),
+                specialist_name=proposal.source_name,
+                description=proposal.proposed_change[:200],
+                date=proposal.created_at,
+            )
+        )
 
     total = len(disputes) + len(promotions) + len(matrix_approvals) + len(update_proposals)
     return PendingActionsResponse(

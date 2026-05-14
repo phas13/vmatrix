@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -72,3 +72,32 @@ class CompetencySubItem(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     is_flagged: Mapped[bool] = mapped_column(nullable=False, default=False)
     flag_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped["CompetencyCategory"] = relationship(back_populates="sub_items")
+
+
+class ProposalStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class MatrixUpdateProposal(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    __tablename__ = "matrix_update_proposals"
+    __table_args__ = (Index("ix_matrix_update_proposals_status", "status"),)
+
+    proposed_change: Mapped[str] = mapped_column(Text, nullable=False)
+    source_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    source_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    matrix_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("competency_matrices.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[ProposalStatus] = mapped_column(
+        SAEnum(
+            ProposalStatus,
+            native_enum=False,
+            length=10,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
+        default=ProposalStatus.PENDING,
+    )
