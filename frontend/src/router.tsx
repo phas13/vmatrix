@@ -23,6 +23,7 @@ const SpecialistDetailPage = React.lazy(() => import('./pages/cm/SpecialistDetai
 const CMReviewPlaceholderPage = React.lazy(() => import('./pages/cm/CMReviewPlaceholderPage'));
 const DisputeReviewPage = React.lazy(() => import('./pages/cm/DisputeReviewPage'));
 const PromotionReviewPage = React.lazy(() => import('./pages/cm/PromotionReviewPage'));
+const MatrixUpdateProposalReviewPage = React.lazy(() => import('./pages/cm/MatrixUpdateProposalReviewPage'));
 
 const ROLE_HOMES: Record<string, string> = {
   specialist: '/specialist/dashboard',
@@ -90,6 +91,7 @@ export const router = createBrowserRouter([
       { path: 'matrix/:specialistId/review', element: <MatrixReviewPage /> },
       { path: 'review/dispute/:id', element: <DisputeReviewPage /> },
       { path: 'review/promotion/:id', element: <PromotionReviewPage /> },
+      { path: 'review/update-proposal/:id', element: <MatrixUpdateProposalReviewPage /> },
       { path: 'review/:type/:id', element: <CMReviewPlaceholderPage /> },
     ],
   },

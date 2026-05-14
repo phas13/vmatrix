@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db_session, require_role
 from app.models.user import User, UserRole
-from app.schemas.cm import DisputeDetailRead, DisputeResolveRequest, DisputeResolveResponse, PendingActionsResponse, PromotionDecideRequest, PromotionDecideResponse, PromotionDetailRead, SpecialistCardRead, SpecialistDetailRead
+from app.schemas.cm import DisputeDetailRead, DisputeResolveRequest, DisputeResolveResponse, MatrixProposalDecideResponse, MatrixProposalDetailRead, PendingActionsResponse, PromotionDecideRequest, PromotionDecideResponse, PromotionDetailRead, SpecialistCardRead, SpecialistDetailRead
 from app.services import cm_service
 
 router = APIRouter()
@@ -86,3 +86,30 @@ async def reject_cm_promotion(
     current_user: User = Depends(require_role(UserRole.CM)),
 ) -> PromotionDecideResponse:
     return await cm_service.reject_promotion(current_user.id, notification_id, body, db)
+
+
+@router.get("/matrix-proposals/{proposal_id}", response_model=MatrixProposalDetailRead)
+async def get_cm_matrix_proposal(
+    proposal_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_role(UserRole.CM)),
+) -> MatrixProposalDetailRead:
+    return await cm_service.get_matrix_proposal_detail(current_user.id, proposal_id, db)
+
+
+@router.post("/matrix-proposals/{proposal_id}/actions/approve", response_model=MatrixProposalDecideResponse)
+async def approve_cm_matrix_proposal(
+    proposal_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_role(UserRole.CM)),
+) -> MatrixProposalDecideResponse:
+    return await cm_service.approve_matrix_proposal(current_user.id, proposal_id, db)
+
+
+@router.post("/matrix-proposals/{proposal_id}/actions/reject", response_model=MatrixProposalDecideResponse)
+async def reject_cm_matrix_proposal(
+    proposal_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_role(UserRole.CM)),
+) -> MatrixProposalDecideResponse:
+    return await cm_service.reject_matrix_proposal(current_user.id, proposal_id, db)

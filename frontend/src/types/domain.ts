@@ -222,3 +222,19 @@ export interface PromotionDecideResponse {
   decision: string
   newLevel: SpecialistLevel | null
 }
+
+export interface MatrixProposalDetail {
+  id: string
+  proposedChange: string
+  sourceName: string
+  sourceUrl: string
+  sourceDate: string | null
+  status: string
+  isDecided: boolean
+  createdAt: string
+}
+
+export interface MatrixProposalDecideResponse {
+  proposalId: string
+  decision: string
+}

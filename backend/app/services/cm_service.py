@@ -19,6 +19,8 @@ from app.schemas.cm import (
     DisputeDetailRead,
     DisputeResolveRequest,
     DisputeResolveResponse,
+    MatrixProposalDecideResponse,
+    MatrixProposalDetailRead,
     PendingActionRead,
     PendingActionType,
     PendingActionsResponse,
@@ -567,3 +569,73 @@ async def reject_promotion(
         decision="rejected",
         new_level=None,
     )
+
+
+async def get_matrix_proposal_detail(
+    cm_id: UUID, proposal_id: UUID, db: AsyncSession
+) -> MatrixProposalDetailRead:
+    proposal = await db.get(MatrixUpdateProposal, proposal_id)
+    if proposal is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
+    return MatrixProposalDetailRead(
+        id=proposal.id,
+        proposed_change=proposal.proposed_change,
+        source_name=proposal.source_name,
+        source_url=proposal.source_url,
+        source_date=proposal.source_date,
+        status=proposal.status,
+        is_decided=proposal.status != ProposalStatus.PENDING,
+        created_at=proposal.created_at,
+    )
+
+
+async def approve_matrix_proposal(
+    cm_id: UUID, proposal_id: UUID, db: AsyncSession
+) -> MatrixProposalDecideResponse:
+    result = await db.execute(
+        select(MatrixUpdateProposal).where(MatrixUpdateProposal.id == proposal_id).with_for_update()
+    )
+    proposal = result.scalar_one_or_none()
+    if proposal is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
+    if proposal.status != ProposalStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "type": "https://vmatrix.app/errors/conflict",
+                "title": "Conflict",
+                "status": 409,
+                "detail": "Proposal has already been decided",
+            },
+        )
+    proposal.status = ProposalStatus.APPROVED
+    proposal.decided_by_cm_id = cm_id
+    proposal.decided_at = datetime.now(timezone.utc)
+    await db.commit()
+    return MatrixProposalDecideResponse(proposal_id=proposal.id, decision="approved")
+
+
+async def reject_matrix_proposal(
+    cm_id: UUID, proposal_id: UUID, db: AsyncSession
+) -> MatrixProposalDecideResponse:
+    result = await db.execute(
+        select(MatrixUpdateProposal).where(MatrixUpdateProposal.id == proposal_id).with_for_update()
+    )
+    proposal = result.scalar_one_or_none()
+    if proposal is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
+    if proposal.status != ProposalStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "type": "https://vmatrix.app/errors/conflict",
+                "title": "Conflict",
+                "status": 409,
+                "detail": "Proposal has already been decided",
+            },
+        )
+    proposal.status = ProposalStatus.REJECTED
+    proposal.decided_by_cm_id = cm_id
+    proposal.decided_at = datetime.now(timezone.utc)
+    await db.commit()
+    return MatrixProposalDecideResponse(proposal_id=proposal.id, decision="rejected")

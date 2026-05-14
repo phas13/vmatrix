@@ -135,6 +135,7 @@
       "allCaughtUp": "All caught up — no actions pending",
       "review": "Review",
       "loadError": "Failed to load pending actions — please retry",
+      "proposalsCurrent": "Matrix is current — no proposals pending",
       "groupLabel": {
         "dispute": "Disputes",
         "promotion": "Promotions",
@@ -205,6 +206,21 @@
       "decidedRejected": "Decision: Rejected",
       "notAssessed": "Not assessed",
       "noSessions": "No assessment sessions yet"
+    },
+    "proposal": {
+      "loadError": "Failed to load proposal — please retry",
+      "approveError": "Failed to approve proposal — please try again",
+      "rejectError": "Failed to reject proposal — please try again",
+      "alreadyDecided": "This proposal has already been decided",
+      "approveSuccess": "Proposal approved — navigating…",
+      "rejectSuccess": "Proposal rejected — navigating…",
+      "proposedChange": "Proposed Change",
+      "sourceAttribution": "Suggested by {{source}} · {{days}} days ago",
+      "sourceUrl": "View Source",
+      "approve": "Approve",
+      "reject": "Reject",
+      "decidedApproved": "Decision: Approved",
+      "decidedRejected": "Decision: Rejected"
     }
   },
   "session": {

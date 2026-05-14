@@ -101,3 +101,7 @@ class MatrixUpdateProposal(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         nullable=False,
         default=ProposalStatus.PENDING,
     )
+    decided_by_cm_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

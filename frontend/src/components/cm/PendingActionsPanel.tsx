@@ -123,12 +123,21 @@ export default function PendingActionsPanel({ data, isLoading }: Props) {
           label={t('cm.pending.groupLabel.matrix_approval')}
         />
       )}
-      {data.updateProposals.length > 0 && (
+      {data.updateProposals.length > 0 ? (
         <ActionGroup
           type="update_proposal"
           items={data.updateProposals}
           label={t('cm.pending.groupLabel.update_proposal')}
         />
+      ) : (
+        <Box sx={{ mb: 2 }}>
+          <Typography role="heading" aria-level={2} variant="subtitle1" sx={{ mb: 0.5 }}>
+            {t('cm.pending.groupLabel.update_proposal')}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {t('cm.pending.proposalsCurrent')}
+          </Typography>
+        </Box>
       )}
     </Box>
   )

@@ -1,4 +1,4 @@
-import type { DisputeDetailData, PendingActionsData, PromotionDecideRequest, PromotionDecideResponse, PromotionDetailData, ResolveDisputeRequest, ResolveDisputeResponse, SpecialistCard, SpecialistDetail } from '../types/domain'
+import type { DisputeDetailData, MatrixProposalDecideResponse, MatrixProposalDetail, PendingActionsData, PromotionDecideRequest, PromotionDecideResponse, PromotionDetailData, ResolveDisputeRequest, ResolveDisputeResponse, SpecialistCard, SpecialistDetail } from '../types/domain'
 import { apiClient } from './client'
 
 export async function getCmTeam(): Promise<SpecialistCard[]> {
@@ -66,6 +66,27 @@ export async function rejectCmPromotion(
   const response = await apiClient.post<PromotionDecideResponse>(
     `/cm/promotions/${notificationId}/actions/reject`,
     { cm_note: data.cmNote ?? null },
+  )
+  return response.data
+}
+
+export async function getMatrixProposalDetail(proposalId: string): Promise<MatrixProposalDetail> {
+  const response = await apiClient.get<MatrixProposalDetail>(`/cm/matrix-proposals/${proposalId}`)
+  return response.data
+}
+
+export async function approveMatrixProposal(proposalId: string): Promise<MatrixProposalDecideResponse> {
+  const response = await apiClient.post<MatrixProposalDecideResponse>(
+    `/cm/matrix-proposals/${proposalId}/actions/approve`,
+    {},
+  )
+  return response.data
+}
+
+export async function rejectMatrixProposal(proposalId: string): Promise<MatrixProposalDecideResponse> {
+  const response = await apiClient.post<MatrixProposalDecideResponse>(
+    `/cm/matrix-proposals/${proposalId}/actions/reject`,
+    {},
   )
   return response.data
 }

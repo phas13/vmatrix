@@ -1,11 +1,12 @@
 import enum
-from datetime import datetime
+from datetime import date as date_type, datetime
 from typing import Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.models.user import SpecialistLevel
+from app.models.matrix import ProposalStatus
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.session import CategoryScoreRead, SessionListItemRead
 
@@ -151,3 +152,23 @@ class PromotionDecideResponse(BaseModel):
     notification_id: UUID
     decision: str
     new_level: str | None
+
+
+class MatrixProposalDetailRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    proposed_change: str
+    source_name: str
+    source_url: str
+    source_date: date_type | None
+    status: ProposalStatus
+    is_decided: bool
+    created_at: datetime
+
+
+class MatrixProposalDecideResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=False)
+
+    proposal_id: UUID
+    decision: str

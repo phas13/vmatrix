@@ -8,7 +8,8 @@ from fastapi import HTTPException
 from app.core.security import create_access_token
 from app.db.session import get_db_session
 from app.models.user import SpecialistLevel, User, UserRole
-from app.schemas.cm import DisputeDecision, DisputeDetailRead, DisputeResolveResponse, PendingActionsResponse, PendingActionRead, PendingActionType, PromotionDetailRead, PromotionDecideResponse, QuestionResponseItem, SpecialistCardRead, SpecialistDetailRead
+from app.schemas.cm import DisputeDecision, DisputeDetailRead, DisputeResolveResponse, MatrixProposalDecideResponse, MatrixProposalDetailRead, PendingActionsResponse, PendingActionRead, PendingActionType, PromotionDetailRead, PromotionDecideResponse, QuestionResponseItem, SpecialistCardRead, SpecialistDetailRead
+from app.models.matrix import ProposalStatus
 from app.schemas.pagination import PaginatedResponse
 from app.schemas.session import CategoryScoreRead, SessionListItemRead, SessionStatus
 from main import app
@@ -1056,3 +1057,197 @@ async def test_reject_promotion_with_note(async_client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["decision"] == "rejected"
+
+
+# ─── GET /cm/matrix-proposals/{id} and POST /cm/matrix-proposals/{id}/actions/* ─
+
+def _make_proposal() -> MagicMock:
+    p = MagicMock()
+    p.id = uuid4()
+    p.proposed_change = "Add Kubernetes operator pattern to cloud-native section"
+    p.source_name = "CNCF Landscape"
+    p.source_url = "https://landscape.cncf.io"
+    p.source_date = None
+    p.status = ProposalStatus.PENDING
+    p.created_at = _now()
+    return p
+
+
+def _make_proposal_detail_read() -> MatrixProposalDetailRead:
+    return MatrixProposalDetailRead(
+        id=uuid4(),
+        proposed_change="Add Kubernetes operator pattern to cloud-native section",
+        source_name="CNCF Landscape",
+        source_url="https://landscape.cncf.io",
+        source_date=None,
+        status=ProposalStatus.PENDING,
+        is_decided=False,
+        created_at=_now(),
+    )
+
+
+def _make_proposal_decide_response(decision: str) -> MatrixProposalDecideResponse:
+    return MatrixProposalDecideResponse(proposal_id=uuid4(), decision=decision)
+
+
+@pytest.mark.asyncio
+async def test_get_matrix_proposal_detail_ok(async_client):
+    cm = _make_cm()
+    detail = _make_proposal_detail_read()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_matrix_proposal_detail",
+            new=AsyncMock(return_value=detail),
+        ):
+            resp = await async_client.get(
+                f"/api/v1/cm/matrix-proposals/{detail.id}",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source_name"] == "CNCF Landscape"
+    assert body["is_decided"] is False
+    assert body["status"] == "PENDING"
+
+
+@pytest.mark.asyncio
+async def test_get_matrix_proposal_detail_not_found(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.get_matrix_proposal_detail",
+            new=AsyncMock(side_effect=HTTPException(status_code=404, detail="Proposal not found")),
+        ):
+            resp = await async_client.get(
+                f"/api/v1/cm/matrix-proposals/{uuid4()}",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_proposal_ok(async_client):
+    cm = _make_cm()
+    approve_resp = _make_proposal_decide_response("approved")
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.approve_matrix_proposal",
+            new=AsyncMock(return_value=approve_resp),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/matrix-proposals/{uuid4()}/actions/approve",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["decision"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_proposal_already_decided(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.approve_matrix_proposal",
+            new=AsyncMock(side_effect=HTTPException(
+                status_code=409,
+                detail={"type": "https://vmatrix.app/errors/conflict", "title": "Conflict",
+                        "status": 409, "detail": "Proposal has already been decided"},
+            )),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/matrix-proposals/{uuid4()}/actions/approve",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_approve_matrix_proposal_role_guard(async_client):
+    cm = _make_cm()
+    specialist = _make_specialist(cm)
+    override, _ = _make_auth_db(specialist)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        resp = await async_client.post(
+            f"/api/v1/cm/matrix-proposals/{uuid4()}/actions/approve",
+            cookies={"access_token": _make_jwt(specialist)},
+        )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_reject_matrix_proposal_ok(async_client):
+    cm = _make_cm()
+    reject_resp = _make_proposal_decide_response("rejected")
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.reject_matrix_proposal",
+            new=AsyncMock(return_value=reject_resp),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/matrix-proposals/{uuid4()}/actions/reject",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["decision"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_reject_matrix_proposal_already_decided(async_client):
+    cm = _make_cm()
+    override, _ = _make_auth_db(cm)
+    app.dependency_overrides[get_db_session] = override
+
+    try:
+        with patch(
+            "app.services.cm_service.reject_matrix_proposal",
+            new=AsyncMock(side_effect=HTTPException(
+                status_code=409,
+                detail={"type": "https://vmatrix.app/errors/conflict", "title": "Conflict",
+                        "status": 409, "detail": "Proposal has already been decided"},
+            )),
+        ):
+            resp = await async_client.post(
+                f"/api/v1/cm/matrix-proposals/{uuid4()}/actions/reject",
+                cookies={"access_token": _make_jwt(cm)},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert resp.status_code == 409
