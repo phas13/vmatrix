@@ -112,8 +112,9 @@ export default function MatrixUpdateProposalReviewPage() {
 
   const isPending = approveMutation.isPending || rejectMutation.isPending
 
-  const daysAgo = data
-    ? Math.floor((Date.now() - new Date(data.createdAt).getTime()) / 86_400_000)
+  const dateToUse = data?.sourceDate || data?.createdAt
+  const daysAgo = dateToUse
+    ? Math.max(0, Math.floor((Date.now() - new Date(dateToUse).getTime()) / 86_400_000))
     : 0
 
   const leftContent = data ? (
@@ -125,13 +126,20 @@ export default function MatrixUpdateProposalReviewPage() {
         {data.proposedChange}
       </Typography>
 
-      <Typography variant="caption" color="text.secondary">
-        {t('cm.proposal.sourceAttribution', { source: data.sourceName, days: daysAgo })}
-      </Typography>
+      {data.sourceDate && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          {t('cm.proposal.sourceDate')}: {new Date(data.sourceDate).toLocaleDateString()}
+        </Typography>
+      )}
 
       {data.sourceUrl && (
         <Box sx={{ mt: 1 }}>
-          <Link href={data.sourceUrl} target="_blank" rel="noopener noreferrer" variant="body2">
+          <Link
+            href={data.sourceUrl.startsWith('http') ? data.sourceUrl : '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="body2"
+          >
             {t('cm.proposal.sourceUrl')}
           </Link>
         </Box>
@@ -141,6 +149,10 @@ export default function MatrixUpdateProposalReviewPage() {
 
   const rightContent = data ? (
     <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+        {t('cm.proposal.sourceAttribution', { source: data.sourceName, count: daysAgo })}
+      </Typography>
+
       {actionErrorMsg && (
         <Alert severity="error" sx={{ mb: 2 }}>{actionErrorMsg}</Alert>
       )}

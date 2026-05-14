@@ -167,8 +167,13 @@ class MatrixProposalDetailRead(BaseModel):
     created_at: datetime
 
 
+class MatrixProposalDecision(str, enum.Enum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class MatrixProposalDecideResponse(BaseModel):
     model_config = ConfigDict(from_attributes=False)
 
     proposal_id: UUID
-    decision: str
+    decision: MatrixProposalDecision

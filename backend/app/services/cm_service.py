@@ -589,9 +589,7 @@ async def get_matrix_proposal_detail(
     )
 
 
-async def approve_matrix_proposal(
-    cm_id: UUID, proposal_id: UUID, db: AsyncSession
-) -> MatrixProposalDecideResponse:
+async def _get_pending_matrix_proposal(proposal_id: UUID, db: AsyncSession) -> MatrixUpdateProposal:
     result = await db.execute(
         select(MatrixUpdateProposal).where(MatrixUpdateProposal.id == proposal_id).with_for_update()
     )
@@ -608,34 +606,28 @@ async def approve_matrix_proposal(
                 "detail": "Proposal has already been decided",
             },
         )
+    return proposal
+
+
+async def approve_matrix_proposal(
+    cm_id: UUID, proposal_id: UUID, db: AsyncSession
+) -> MatrixProposalDecideResponse:
+    proposal = await _get_pending_matrix_proposal(proposal_id, db)
     proposal.status = ProposalStatus.APPROVED
     proposal.decided_by_cm_id = cm_id
     proposal.decided_at = datetime.now(timezone.utc)
     await db.commit()
-    return MatrixProposalDecideResponse(proposal_id=proposal.id, decision="approved")
+    from app.schemas.cm import MatrixProposalDecision
+    return MatrixProposalDecideResponse(proposal_id=proposal.id, decision=MatrixProposalDecision.APPROVED)
 
 
 async def reject_matrix_proposal(
     cm_id: UUID, proposal_id: UUID, db: AsyncSession
 ) -> MatrixProposalDecideResponse:
-    result = await db.execute(
-        select(MatrixUpdateProposal).where(MatrixUpdateProposal.id == proposal_id).with_for_update()
-    )
-    proposal = result.scalar_one_or_none()
-    if proposal is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
-    if proposal.status != ProposalStatus.PENDING:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "type": "https://vmatrix.app/errors/conflict",
-                "title": "Conflict",
-                "status": 409,
-                "detail": "Proposal has already been decided",
-            },
-        )
+    proposal = await _get_pending_matrix_proposal(proposal_id, db)
     proposal.status = ProposalStatus.REJECTED
     proposal.decided_by_cm_id = cm_id
     proposal.decided_at = datetime.now(timezone.utc)
     await db.commit()
-    return MatrixProposalDecideResponse(proposal_id=proposal.id, decision="rejected")
+    from app.schemas.cm import MatrixProposalDecision
+    return MatrixProposalDecideResponse(proposal_id=proposal.id, decision=MatrixProposalDecision.REJECTED)
