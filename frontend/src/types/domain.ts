@@ -238,3 +238,15 @@ export interface MatrixProposalDecideResponse {
   proposalId: string
   decision: string
 }
+
+export interface CompetencyAreaStat {
+  categoryName: string
+  avgScore: number
+}
+
+export interface HRStats {
+  levelDistribution: Record<string, number>    // {"junior": 3, "middle": 5, ...}
+  avgProgressPerLevel: Record<string, number>  // {"junior": 42, ...}
+  strongestAreas: CompetencyAreaStat[]
+  weakestAreas: CompetencyAreaStat[]
+}

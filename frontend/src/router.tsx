@@ -8,7 +8,6 @@ import CMLayout from './layouts/CMLayout';
 import HRLayout from './layouts/HRLayout';
 import AdminLayout from './layouts/AdminLayout';
 import LoginPage from './pages/LoginPage';
-import PlaceholderPage from './pages/PlaceholderPage';
 const UsersPage = React.lazy(() => import('./pages/admin/UsersPage'));
 const SettingsPage = React.lazy(() => import('./pages/admin/SettingsPage'));
 const DashboardPage = React.lazy(() => import('./pages/specialist/DashboardPage'));
@@ -24,6 +23,7 @@ const CMReviewPlaceholderPage = React.lazy(() => import('./pages/cm/CMReviewPlac
 const DisputeReviewPage = React.lazy(() => import('./pages/cm/DisputeReviewPage'));
 const PromotionReviewPage = React.lazy(() => import('./pages/cm/PromotionReviewPage'));
 const MatrixUpdateProposalReviewPage = React.lazy(() => import('./pages/cm/MatrixUpdateProposalReviewPage'));
+const HRDashboardPage = React.lazy(() => import('./pages/hr/DashboardPage'));
 
 const ROLE_HOMES: Record<string, string> = {
   specialist: '/specialist/dashboard',
@@ -100,7 +100,7 @@ export const router = createBrowserRouter([
     loader: requireRole('hr'),
     element: <HRLayout />,
     children: [
-      { path: 'dashboard', element: <PlaceholderPage title="HR Dashboard" /> },
+      { path: 'dashboard', element: <HRDashboardPage /> },
     ],
   },
   {

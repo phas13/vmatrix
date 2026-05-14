@@ -313,6 +313,19 @@
     "senior": "Senior",
     "unknown": "—"
   },
+  "hr": {
+    "dashboard": {
+      "title": "HR Dashboard",
+      "levelDistribution": "Level Distribution",
+      "avgProgress": "Average Progress by Level",
+      "strongestAreas": "Strongest Competency Areas",
+      "weakestAreas": "Areas for Improvement",
+      "specialists": "specialists",
+      "avgScore": "Avg Score",
+      "noData": "No assessment data yet",
+      "loadError": "Failed to load statistics — please retry"
+    }
+  },
   "notifications": {
     "types": {
       "credential_reset": "Your credentials have been reset by an administrator.",

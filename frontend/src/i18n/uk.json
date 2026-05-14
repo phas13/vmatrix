@@ -317,6 +317,19 @@
     "senior": "Senior",
     "unknown": "—"
   },
+  "hr": {
+    "dashboard": {
+      "title": "HR Панель",
+      "levelDistribution": "Розподіл за рівнями",
+      "avgProgress": "Середній прогрес за рівнями",
+      "strongestAreas": "Найсильніші компетенції",
+      "weakestAreas": "Зони для покращення",
+      "specialists": "спеціалістів",
+      "avgScore": "Середній бал",
+      "noData": "Дані оцінювань відсутні",
+      "loadError": "Не вдалося завантажити статистику — спробуйте ще раз"
+    }
+  },
   "notifications": {
     "types": {
       "credential_reset": "Ваші облікові дані були скинуті адміністратором.",

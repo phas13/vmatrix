@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -278,14 +278,14 @@ async def test_admin_status_accessible_by_admin(async_client):
     assert response.json()["status"] == "admin_only"
 
 
-async def test_hr_status_requires_hr_role(async_client):
+async def test_hr_stats_requires_hr_role(async_client):
     specialist = _make_user(UserRole.SPECIALIST)
     override, _ = _db_returning(specialist)
     app.dependency_overrides[get_db_session] = override
     try:
         token = _make_jwt(specialist)
         response = await async_client.get(
-            "/api/v1/hr/status",
+            "/api/v1/hr/stats",
             cookies={"access_token": token},
         )
     finally:
@@ -294,39 +294,48 @@ async def test_hr_status_requires_hr_role(async_client):
     assert response.status_code == 403
 
 
-async def test_hr_status_accessible_by_hr(async_client):
+async def test_hr_stats_accessible_by_hr(async_client):
+    from app.schemas.hr import CompetencyAreaStat, HRStatsResponse
+
     hr = _make_user(UserRole.HR)
     override, _ = _db_returning(hr)
     app.dependency_overrides[get_db_session] = override
     try:
         token = _make_jwt(hr)
-        response = await async_client.get(
-            "/api/v1/hr/status",
-            cookies={"access_token": token},
-        )
+        with patch(
+            "app.services.hr_service.get_hr_stats",
+            new=AsyncMock(return_value=HRStatsResponse(
+                level_distribution={},
+                avg_progress_per_level={},
+                strongest_areas=[],
+                weakest_areas=[],
+            )),
+        ):
+            response = await async_client.get(
+                "/api/v1/hr/stats",
+                cookies={"access_token": token},
+            )
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.json()["status"] == "hr_only"
 
 
-async def test_hr_status_accessible_by_admin(async_client):
-    """ADMIN is a global superuser — must have access to HR-scoped endpoints."""
+async def test_hr_stats_admin_gets_403(async_client):
+    """AC3: Admin must NOT access HR stats — HR endpoint is HR-only (stricter than old /status placeholder)."""
     admin = _make_user(UserRole.ADMIN)
     override, _ = _db_returning(admin)
     app.dependency_overrides[get_db_session] = override
     try:
         token = _make_jwt(admin)
         response = await async_client.get(
-            "/api/v1/hr/status",
+            "/api/v1/hr/stats",
             cookies={"access_token": token},
         )
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "hr_only"
+    assert response.status_code == 403
 
 
 # ─── AC3 strengthening: verify the cm_id WHERE clause is actually applied ─────
