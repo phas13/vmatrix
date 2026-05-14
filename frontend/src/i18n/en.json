@@ -323,6 +323,7 @@
       "specialists": "specialists",
       "avgScore": "Avg Score",
       "noData": "No assessment data yet",
+      "weakestOverlap": "No distinct areas of concern — strongest categories cover the workforce",
       "loadError": "Failed to load statistics — please retry"
     }
   },

@@ -14,7 +14,9 @@ from app.core.security import (
     hash_token,
     verify_password,
 )
+from app.models.usage_event import UsageEventAction
 from app.models.user import RefreshToken, User
+from app.services import usage_service
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +84,7 @@ async def create_session(user: User, db: AsyncSession) -> tuple[str, str, str]:
         family_id=uuid4(),
     )
     db.add(rt)
+    await usage_service.record_event(db, user.id, UsageEventAction.USER_LOGIN)
     await db.commit()
 
     logger.info("session created user_id=%s", user.id)

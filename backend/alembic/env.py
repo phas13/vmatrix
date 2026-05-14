@@ -11,6 +11,7 @@ from app.models.user import User, RefreshToken  # noqa: F401
 from app.models.system_settings import SystemSettings  # noqa: F401
 from app.models.matrix import CompetencyMatrix, CompetencyCategory, CompetencySubItem  # noqa: F401
 from app.models.llm_call_log import LLMCallLog  # noqa: F401
+from app.models.usage_event import UsageEvent  # noqa: F401
 
 config = context.config
 

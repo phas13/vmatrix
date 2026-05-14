@@ -27,7 +27,9 @@ from app.models.session import (
     SessionStatus,
     SpecialistScore,
 )
+from app.models.usage_event import UsageEventAction, UsageEventResourceType
 from app.models.user import User, UserRole
+from app.services import usage_service
 from app.providers.base import QAEntry, QuestionGenerationContext, ResponseEvaluationContext, SubItemInfo
 from app.providers.factory import get_llm_provider
 from app.services.prompt_builder import build_question_generation_prompt, build_response_evaluation_prompt
@@ -397,6 +399,10 @@ async def create_session_stream(
         persisted_questions.append(q)
 
     db.add(llm_log)
+    await usage_service.record_event(
+        db, specialist_id, UsageEventAction.SESSION_CREATED,
+        resource_id=session.id, resource_type=UsageEventResourceType.SESSION
+    )
     await db.commit()
     await db.refresh(session)
     for q in persisted_questions:
@@ -577,6 +583,10 @@ async def evaluate_session(
     db.add(llm_log)
     from app.services.level_service import check_threshold
     await check_threshold(current_user.id, level_percentage, db)
+    await usage_service.record_event(
+        db, current_user.id, UsageEventAction.SESSION_EVALUATED,
+        resource_id=session_id, resource_type=UsageEventResourceType.SESSION
+    )
     await db.commit()
 
     return {
@@ -763,6 +773,10 @@ async def submit_answer(
         response_text=encrypt_field(response_text),
     )
     db.add(response)
+    await usage_service.record_event(
+        db, current_user.id, UsageEventAction.ANSWER_SUBMITTED,
+        resource_id=session_id, resource_type=UsageEventResourceType.SESSION
+    )
     await db.commit()
     await db.refresh(response)
     return response
@@ -822,6 +836,10 @@ async def submit_dispute(
             session_id, current_user.id
         )
 
+    await usage_service.record_event(
+        db, current_user.id, UsageEventAction.DISPUTE_SUBMITTED,
+        resource_id=session_id, resource_type=UsageEventResourceType.SESSION
+    )
     await db.commit()
     await db.refresh(dispute)
     return dispute

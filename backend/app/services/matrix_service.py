@@ -16,7 +16,9 @@ from app.models.llm_call_log import LLMCallLog, LLMOperation
 from app.models.matrix import CompetencyCategory, CompetencyMatrix, CompetencySubItem, MatrixStatus, MatrixUpdateProposal, ProposalStatus
 from app.models.notification import Notification, NotificationType
 from app.models.system_settings import SystemSettings
+from app.models.usage_event import UsageEventAction, UsageEventResourceType
 from app.models.user import User, UserRole
+from app.services import usage_service
 from app.providers.base import MatrixGenerationContext, MatrixUpdateProposalDraft
 from app.providers.factory import get_llm_provider
 from app.schemas.matrix import MatrixApproveRequest
@@ -565,6 +567,10 @@ async def approve_matrix(
         content="Your competency matrix has been approved — you can start assessments",
     )
     db.add(notification)
+    await usage_service.record_event(
+        db, current_user.id, UsageEventAction.MATRIX_APPROVED,
+        resource_id=matrix.id, resource_type=UsageEventResourceType.MATRIX
+    )
 
     await db.commit()
 

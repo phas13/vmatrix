@@ -166,13 +166,13 @@ async def test_login_persists_refresh_token_to_db(async_client: AsyncClient):
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    mock_db.add.assert_called_once()
-    added = mock_db.add.call_args[0][0]
-    assert isinstance(added, RefreshToken)
+    assert mock_db.add.call_count == 2  # RefreshToken + UsageEvent
+    from app.models.user import RefreshToken as RT
+    rt = next(a[0][0] for a in mock_db.add.call_args_list if isinstance(a[0][0], RT))
     raw_refresh_token = response.cookies.get("refresh_token")
     assert raw_refresh_token is not None
-    assert added.token_hash == hash_token(raw_refresh_token)
-    assert added.family_id is not None
+    assert rt.token_hash == hash_token(raw_refresh_token)
+    assert rt.family_id is not None
 
 
 # ─── AC #2: Token refresh rotates tokens ──────────────────────────────────────

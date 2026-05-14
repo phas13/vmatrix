@@ -107,3 +107,42 @@ async def test_get_hr_stats_null_level_skipped():
     assert None not in result.level_distribution
     assert "middle" in result.avg_progress_per_level
     assert None not in result.avg_progress_per_level
+
+
+@pytest.mark.asyncio
+async def test_get_hr_stats_never_queries_forbidden_tables_or_columns():
+    """AC2 security invariant: hr_service MUST NEVER reference
+    `assessment_responses`, `response_text`, or `ai_rationale` in any SQL.
+    Enforced structurally so regressions cannot slip through code review."""
+    db = _make_db([], [], [], [])
+
+    await get_hr_stats(db)
+
+    forbidden = ("assessment_responses", "response_text", "ai_rationale")
+    for call in db.execute.call_args_list:
+        # The compiled SQL statement is the first positional arg
+        sql_str = str(call.args[0]).lower()
+        for term in forbidden:
+            assert term not in sql_str, (
+                f"AC2 violation: hr_service SQL referenced forbidden symbol '{term}'.\n"
+                f"Query: {sql_str}"
+            )
+
+
+@pytest.mark.asyncio
+async def test_get_hr_stats_dedupes_overlap_between_strongest_and_weakest():
+    """When ≤5 distinct categories exist, weakest must not duplicate strongest entries."""
+    db = _make_db(
+        [],
+        [],
+        [("Docker", 90), ("K8s", 80), ("CI/CD", 70)],   # strongest
+        [("Docker", 90), ("K8s", 80), ("CI/CD", 70)],   # weakest (same — full overlap)
+    )
+
+    result = await get_hr_stats(db)
+
+    strongest_names = {s.category_name for s in result.strongest_areas}
+    for w in result.weakest_areas:
+        assert w.category_name not in strongest_names, (
+            f"Category '{w.category_name}' appears in both strongest and weakest"
+        )

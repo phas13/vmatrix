@@ -61,9 +61,16 @@ async def get_current_user(
 def require_role(*roles: UserRole) -> Callable:
     """Build a FastAPI dependency that enforces the caller has one of `roles`.
 
-    Project-wide rule: every `require_role(*roles)` call MUST include
+    Project-wide rule: every `require_role(*roles)` call SHOULD include
     `UserRole.ADMIN`, because ADMIN is a global superuser that bypasses
-    role-scoped restrictions across all endpoints.
+    role-scoped restrictions across most endpoints.
+
+    Exception — HR analytics endpoints (e.g. `GET /api/v1/hr/stats`,
+    Story 8.1 AC3): HR-only by design. ADMIN must NOT access aggregate
+    workforce statistics because the role-separation is contractual
+    (HR-aggregate boundary), not merely permissive. When adding a new
+    endpoint that intentionally excludes ADMIN, document the carve-out
+    in the route and in the corresponding story.
 
     Reads `current_user.role` from the User object already fetched by
     `get_current_user` — no additional DB lookup is performed for the role

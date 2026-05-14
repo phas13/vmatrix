@@ -1004,7 +1004,10 @@ async def test_submit_dispute_success():
     )
 
     mock_db.commit.assert_called_once()
-    assert len(added) == 2
+    assert len(added) == 3  # dispute + notification + usage event
+    from app.models.usage_event import UsageEvent, UsageEventAction
+    usage_event = next(x for x in added if isinstance(x, UsageEvent))
+    assert usage_event.action_type == UsageEventAction.DISPUTE_SUBMITTED
 
 
 @pytest.mark.asyncio

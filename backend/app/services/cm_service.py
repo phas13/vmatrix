@@ -11,6 +11,7 @@ from app.models.matrix import CompetencyCategory, CompetencyMatrix, MatrixStatus
 from app.models.notification import Notification, NotificationType
 from app.models.session import AssessmentSession, DisputeStatus, SessionDispute, SpecialistScore
 from app.models.system_settings import SystemSettings
+from app.models.usage_event import UsageEventAction, UsageEventResourceType
 from app.models.user import User, UserRole, SpecialistLevel
 import logging
 
@@ -33,7 +34,7 @@ from app.schemas.cm import (
 )
 
 logger = logging.getLogger(__name__)
-from app.services import level_service, session_service
+from app.services import level_service, session_service, usage_service
 
 
 async def get_team_overview(cm_id: UUID, db: AsyncSession) -> list[SpecialistCardRead]:
@@ -361,6 +362,10 @@ async def resolve_dispute(
         type=NotificationType.DISPUTE_RESOLVED,
         content=f"Your dispute for {category_name} has been reviewed — see result",
     ))
+    await usage_service.record_event(
+        db, cm_id, UsageEventAction.DISPUTE_RESOLVED,
+        resource_id=dispute_id, resource_type=UsageEventResourceType.DISPUTE
+    )
 
     await db.commit()
 
@@ -503,6 +508,10 @@ async def approve_promotion(
         type=NotificationType.PROMOTION_APPROVED,
         content=content,
     ))
+    await usage_service.record_event(
+        db, cm_id, UsageEventAction.PROMOTION_APPROVED,
+        resource_id=notification_id, resource_type=UsageEventResourceType.PROMOTION
+    )
 
     await db.commit()
 
@@ -561,6 +570,10 @@ async def reject_promotion(
         type=NotificationType.PROMOTION_REJECTED,
         content=content,
     ))
+    await usage_service.record_event(
+        db, cm_id, UsageEventAction.PROMOTION_REJECTED,
+        resource_id=notification_id, resource_type=UsageEventResourceType.PROMOTION
+    )
 
     await db.commit()
 
@@ -616,6 +629,10 @@ async def approve_matrix_proposal(
     proposal.status = ProposalStatus.APPROVED
     proposal.decided_by_cm_id = cm_id
     proposal.decided_at = datetime.now(timezone.utc)
+    await usage_service.record_event(
+        db, cm_id, UsageEventAction.MATRIX_UPDATE_APPROVED,
+        resource_id=proposal_id, resource_type=UsageEventResourceType.MATRIX_PROPOSAL
+    )
     await db.commit()
     from app.schemas.cm import MatrixProposalDecision
     return MatrixProposalDecideResponse(proposal_id=proposal.id, decision=MatrixProposalDecision.APPROVED)
@@ -628,6 +645,10 @@ async def reject_matrix_proposal(
     proposal.status = ProposalStatus.REJECTED
     proposal.decided_by_cm_id = cm_id
     proposal.decided_at = datetime.now(timezone.utc)
+    await usage_service.record_event(
+        db, cm_id, UsageEventAction.MATRIX_UPDATE_REJECTED,
+        resource_id=proposal_id, resource_type=UsageEventResourceType.MATRIX_PROPOSAL
+    )
     await db.commit()
     from app.schemas.cm import MatrixProposalDecision
     return MatrixProposalDecideResponse(proposal_id=proposal.id, decision=MatrixProposalDecision.REJECTED)
