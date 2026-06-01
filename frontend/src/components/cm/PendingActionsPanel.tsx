@@ -51,7 +51,7 @@ function ActionGroup({ type, items, label }: GroupProps) {
             py: 1,
           }}
         >
-          <Typography variant="body2" fontWeight={500}>{item.specialistName}</Typography>
+          <Typography variant="body2" sx={{ fontWeight: 500 }}>{item.specialistName}</Typography>
           <Typography variant="body2" color="text.secondary">{item.description}</Typography>
           <Typography variant="caption" color="text.secondary">
             {new Date(item.date).toLocaleDateString(i18n.language)}

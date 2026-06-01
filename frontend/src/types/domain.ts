@@ -181,6 +181,7 @@ export interface DisputeDetailData {
   specialistExplanation: string
   submittedAt: string
   cmDecision: string | null
+  cmNote: string | null
   aiScore: number | null
   transcript: DisputeTranscriptItem[]
 }
@@ -211,6 +212,7 @@ export interface PromotionDetailData {
   categoryScores: CategoryScore[]
   sessions: PaginatedResponse<SessionListItem>
   isDecided: boolean
+  decision: string | null
 }
 
 export interface PromotionDecideRequest {

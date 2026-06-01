@@ -250,7 +250,7 @@ export default function DisputeReviewPage() {
                 onChange={(e) => handleOverrideScoreChange(e.target.value)}
                 error={!!scoreError}
                 helperText={scoreError ?? undefined}
-                inputProps={{ min: 0, max: 100, step: 1 }}
+                slotProps={{ htmlInput: { min: 0, max: 100, step: 1 } }}
                 required
                 fullWidth
                 sx={{ mb: 1 }}

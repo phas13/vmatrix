@@ -1,13 +1,14 @@
 name: Frontend CI/CD
 
 on:
+  # Run on every branch (not just main) so the production build gate
+  # (tsc -b && vite build) is exercised before a merge.
   push:
-    branches: [ main ]
+    branches: [ '**' ]
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend-ci.yml'
   pull_request:
-    branches: [ main ]
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend-ci.yml'
