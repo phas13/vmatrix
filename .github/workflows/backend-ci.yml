@@ -1,13 +1,14 @@
 name: Backend CI/CD
 
 on:
+  # Run on every branch (not just main) so the build/migration gates are
+  # exercised before a merge — feature branches were previously never checked.
   push:
-    branches: [ main ]
+    branches: [ '**' ]
     paths:
       - 'backend/**'
       - '.github/workflows/backend-ci.yml'
   pull_request:
-    branches: [ main ]
     paths:
       - 'backend/**'
       - '.github/workflows/backend-ci.yml'
@@ -32,9 +33,56 @@ jobs:
           cd backend
           pytest
 
+  migrations:
+    name: Migrations Apply (clean DB)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: vmatrix
+          POSTGRES_USER: vmatrix_user
+          POSTGRES_PASSWORD: changeme_local
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vmatrix_user -d vmatrix"
+          --health-interval 5s --health-timeout 5s --health-retries 5
+    env:
+      # alembic env.py imports the app config, which requires these to be set
+      # (and FERNET_KEY must be a valid 32-byte url-safe base64 key).
+      DATABASE_URL: postgresql+asyncpg://vmatrix_user:changeme_local@localhost:5432/vmatrix
+      SECRET_KEY: ci_dummy_secret_not_used_for_migrations
+      FERNET_KEY: 9i-5Juy2gruo4M0LMe5nDDDEd40xBlm9Nhk-btgKOTI=
+      LLM_PROVIDER: claude
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+      - name: Assert exactly one Alembic head
+        run: |
+          cd backend
+          count=$(alembic heads | grep -c '(head)')
+          echo "Alembic head count: $count"
+          if [ "$count" -ne 1 ]; then
+            echo "::error::Expected exactly 1 Alembic head, found $count. The migration graph has branched — create a merge migration with 'alembic merge'."
+            alembic heads
+            exit 1
+          fi
+      - name: Apply migrations on a clean database
+        run: |
+          cd backend
+          alembic upgrade head
+
   build:
     name: Build Docker Image
-    needs: test
+    needs: [ test, migrations ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
